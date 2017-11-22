@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Settings for Flask and Flask-SQLAlchemy
@@ -13,6 +13,7 @@ Environment/deployment-specific settings should go in
 `settings.<environment_name>`.
 """
 
+import json
 import os
 
 BASE_DIR = os.path.realpath(os.path.join(
@@ -20,14 +21,28 @@ BASE_DIR = os.path.realpath(os.path.join(
 MODULE_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
 SETTINGS_DIR = os.path.join(BASE_DIR, 'ggrc', 'settings')
 THIRD_PARTY_DIR = os.path.realpath(os.path.join(BASE_DIR, '..', 'third_party'))
-BOWER_DIR = os.path.realpath(os.path.join(BASE_DIR, '..', 'bower_components'))
+MANIFEST_CFG_PATH = os.path.join(BASE_DIR, 'ggrc', 'manifest.json')
 
 from ggrc.settings.default import *  # noqa
+
+try:
+  manifest_data = json.load(open(MANIFEST_CFG_PATH))  # noqa # pylint: disable=invalid-name
+  STYLES_CSS_PATH = manifest_data['styles.css']
+  VENDOR_CSS_PATH = manifest_data['vendor.css']
+  VENDOR_JS_PATH = manifest_data['vendor.js']
+  DASHBOARD_JS_PATH = manifest_data['dashboard.js']
+  LOGIN_JS_PATH = manifest_data['login.js']
+except (KeyError, IOError):
+  raise RuntimeError("File '{}' with JS configuration should exist. "
+                     "Next keys should be present there: "
+                     "'dashboard.css, dashboard.js, vendor.css, "
+                     "vendor.js'.".format(MANIFEST_CFG_PATH))
 
 SETTINGS_MODULE = os.environ.get("GGRC_SETTINGS_MODULE", '')
 CUSTOM_URL_ROOT = os.environ.get("GGRC_CUSTOM_URL_ROOT")
 ABOUT_URL = os.environ.get("GGRC_ABOUT_URL")
 ABOUT_TEXT = os.environ.get("GGRC_ABOUT_TEXT")
+EXTERNAL_HELP_URL = os.environ.get("GGRC_EXTERNAL_HELP_URL")
 
 if len(SETTINGS_MODULE.strip()) == 0:
   raise RuntimeError("Specify your settings using the `GGRC_SETTINGS_MODULE` "

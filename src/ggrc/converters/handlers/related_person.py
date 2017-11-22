@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from sqlalchemy import and_
@@ -40,15 +40,18 @@ class RelatedPersonColumnHandler(handlers.UserColumnHandler):
     ).all()
     for relation in relations:
       values = relation.attrs["AssigneeType"].split(",")
-      filtered_values = [v for v in values if v != self._assignee_type]
-      relation.attrs["AssigneeType"] = ",".join(filtered_values)
+      filtered_values = [v for v in values if v != self._assignee_type and v]
+      if filtered_values:
+        relation.attrs["AssigneeType"] = ",".join(filtered_values)
+      else:
+        # if no assignee type remains - delete the relationship,
+        # relationship attr will be cascade deleted
+        db.session.delete(relation)
 
   def _create_relationship(self, person):
     relation = models.Relationship(
-        source_type=person.type,
-        source_id=person.id,
-        destination_type=self.row_converter.obj.type,
-        destination_id=self.row_converter.obj.id,
+        source=person,
+        destination=self.row_converter.obj,
         context_id=self.row_converter.obj.context_id,
     )
     db.session.add(relation)
@@ -58,11 +61,14 @@ class RelatedPersonColumnHandler(handlers.UserColumnHandler):
   def _update_relationship_attr(self, relation, person):
     values = set(relation.attrs["AssigneeType"].split(","))
     values.add(self._assignee_type)
-    relation.attrs["AssigneeType"] = ",".join(values)
+    assignee_type = ",".join([value for value in values if value])
+    relation.attrs["AssigneeType"] = assignee_type
     db.session.flush()
 
   def insert_object(self):
-    self._remove_relationship_attr()
+    # only need to update persons if the imported value is not empty
+    if self.value:
+      self._remove_relationship_attr()
     for person in self.value:
       relation = models.Relationship.find_related(
           self.row_converter.obj, person)
@@ -74,7 +80,7 @@ class RelatedPersonColumnHandler(handlers.UserColumnHandler):
         self._update_relationship_attr(relation, person)
 
   def get_value(self):
-    """ Get a list of people with specific role on a Request """
+    """Get a list of people with specific role on an Assessment"""
     RA = models.RelationshipAttr
     relations = models.Relationship.get_related_query(
         self.row_converter.obj, models.Person()
@@ -100,14 +106,6 @@ class RelatedAssigneesColumnHandler(RelatedPersonColumnHandler):
     self._assignee_type = "Assignee"
     super(RelatedAssigneesColumnHandler, self).__init__(row_converter, key,
                                                         **options)
-
-
-class RelatedRequestersColumnHandler(RelatedPersonColumnHandler):
-
-  def __init__(self, row_converter, key, **options):
-    self._assignee_type = "Requester"
-    super(RelatedRequestersColumnHandler, self).__init__(row_converter, key,
-                                                         **options)
 
 
 class RelatedVerifiersColumnHandler(RelatedPersonColumnHandler):

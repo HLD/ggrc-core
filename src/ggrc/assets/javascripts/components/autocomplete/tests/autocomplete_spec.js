@@ -1,5 +1,5 @@
 /*!
-  Copyright (C) 2016 Google Inc.
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -12,30 +12,32 @@ describe('GGRC.Components.autocomplete', function () {
     Component = GGRC.Components.get('autocomplete');
   });
 
-  describe('defining default scope values', function () {
-    var scope;
+  describe('defining default viewModel values', function () {
+    var viewModel;
 
     beforeAll(function () {
-      scope = Component.prototype.scope;
+      viewModel = Component.prototype.viewModel;
     });
 
     it('sets the automappingOff flag to true', function () {
-      expect(scope().automappingOff).toBe(true);
+      expect(viewModel.automappingOff).toBe(true);
     });
   });
 
   describe('item selected event handler', function () {
     var eventData;
     var eventObj;
+    var fakeViewModel;
     var handler;  // the event handler under test
     var $childInput;
     var $element;
 
-    beforeAll(function () {
-      handler = Component.prototype.events['autocomplete:select'];
-    });
-
     beforeEach(function () {
+      fakeViewModel = new can.Map({});
+      handler = Component.prototype.events['autocomplete:select'].bind({
+        viewModel: fakeViewModel
+      });
+
       eventData = {
         item: {id: 123, type: 'Foo'}
       };
@@ -62,6 +64,19 @@ describe('GGRC.Components.autocomplete', function () {
 
         expect($element.triggerHandler).toHaveBeenCalledWith({
           type: Component.prototype._EV_ITEM_SELECTED,
+          selectedItem: {id: 123, type: 'Foo'}
+        });
+      }
+    );
+
+    it('emits the item-selected event using the dispatch mechanism',
+      function () {
+        spyOn(fakeViewModel, 'dispatch');
+
+        handler($element, eventObj, eventData);
+
+        expect(fakeViewModel.dispatch).toHaveBeenCalledWith({
+          type: 'itemSelected',
           selectedItem: {id: 123, type: 'Foo'}
         });
       }

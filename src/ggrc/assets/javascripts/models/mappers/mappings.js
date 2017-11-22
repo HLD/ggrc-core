@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -32,7 +32,7 @@
       }
     }
   */
-  can.Construct('GGRC.Mappings', {
+  can.Construct.extend('GGRC.Mappings', {
     // Convenience properties for building mappings types.
     Proxy: Proxy,
     Direct: Direct,
@@ -44,7 +44,107 @@
     CustomFilter: CustomFilter,
     Cross: Cross,
     modules: {},
+    getTypeGroups: function () {
+      return {
+        entities: {
+          name: 'People/Groups',
+          items: []
+        },
+        business: {
+          name: 'Assets/Business',
+          items: []
+        },
+        governance: {
+          name: 'Governance',
+          items: []
+        }
+      };
+    },
 
+    /**
+     * Return list of allowed for mapping models.
+     * Performs checks for
+     * @param {String} type - base model type
+     * @param {Array} include - array of included models
+     * @param {Array} exclude - array of excluded models
+     * @return {Array} - list of allowed for mapping Models
+     */
+    getMappingList: function (type, include, exclude) {
+      var baseModel = GGRC.Utils.getModelByType(type);
+      exclude = exclude || [];
+      include = include || [];
+      if (!baseModel) {
+        return [];
+      }
+
+      if (can.isFunction(baseModel.getAllowedMappings)) {
+        return baseModel
+            .getAllowedMappings()
+            .filter(function (model) {
+              return exclude.indexOf(model) < 0;
+            })
+            .concat(include);
+      }
+      return GGRC.Utils
+        .getMappableTypes(type, {
+          whitelist: include,
+          forbidden: exclude
+        });
+    },
+    /**
+     * Return list of allowed for mapping types.
+     * Performs checks for
+     * @param {String} type - base model type
+     * @param {Array} include - array of included models
+     * @param {Array} exclude - array of excluded models
+     * @return {Array} - list of allowed for mapping Models
+     */
+    getMappingTypes: function (type, include, exclude) {
+      var list = this.getMappingList(type, include, exclude);
+      var groups = this.getTypeGroups();
+
+      list.forEach(function (modelName) {
+        return this._addFormattedType(modelName, groups);
+      }.bind(this));
+      return groups;
+    },
+    /**
+     * Returns cmsModel fields in required format.
+     * @param {can.Model} cmsModel - cms model
+     * @return {object} - cms model in required format
+     */
+    _prepareCorrectTypeFormat: function (cmsModel) {
+      return {
+        category: cmsModel.category,
+        name: cmsModel.title_plural,
+        value: cmsModel.model_singular,
+        singular: cmsModel.model_singular,
+        plural: cmsModel.title_plural.toLowerCase().replace(/\s+/, '_'),
+        table_plural: cmsModel.table_plural,
+        title_singular: cmsModel.title_singular
+      };
+    },
+    /**
+     * Adds model to correct group.
+     * @param {string} modelName - model name
+     * @param {object} groups - type groups
+     */
+    _addFormattedType: function (modelName, groups) {
+      var group;
+      var type;
+      var cmsModel;
+      cmsModel = GGRC.Utils.getModelByType(modelName);
+      if (!cmsModel || !cmsModel.title_singular ||
+        cmsModel.title_singular === 'Reference') {
+        return;
+      }
+      type = this._prepareCorrectTypeFormat(cmsModel);
+      group = !groups[type.category] ?
+        groups.governance :
+        groups[type.category];
+
+      group.items.push(type);
+    },
     /*
       return all mappings from all modules for an object type.
       object - a string representing the object type's shortName

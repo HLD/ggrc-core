@@ -1,5 +1,5 @@
 /*!
- Copyright (C) 2016 Google Inc.
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -47,19 +47,19 @@ describe('GGRC Utils Query API', function () {
       });
     });
 
-    describe('Request related to Assessment', function () {
+    describe('Audit related to Assessment', function () {
       beforeEach(function () {
         relevant = {
           id: 1,
           type: 'Assessment'
         };
-        objectName = 'Request';
+        objectName = 'Audit';
       });
 
       it('return default params for paging request', function () {
         var result = method(objectName, paging, relevant)[0];
 
-        expect(result.object_name).toEqual('Request');
+        expect(result.object_name).toEqual('Audit');
         expect(result.limit).toEqual([0, 10]);
         expect(result.filters.expression.object_name).toEqual('Assessment');
       });
@@ -210,6 +210,143 @@ describe('GGRC Utils Query API', function () {
            expect(checkOps(result.filters.expression,
                            ['=', 'AND', 'relevant', 'AND', '~'])).toBe(true);
          });
+    });
+  });
+
+  describe('batchRequests() method', function () {
+    var batchRequests = GGRC.Utils.QueryAPI.batchRequests;
+
+    beforeEach(function () {
+      spyOn(can, 'ajax')
+        .and.returnValues(
+          can.Deferred().resolve([1, 2, 3, 4]), can.Deferred().resolve([1]));
+    });
+
+    afterEach(function () {
+      can.ajax.calls.reset();
+    });
+
+    it('does only one ajax call for a group of consecutive calls',
+      function (done) {
+        $.when(batchRequests(1),
+          batchRequests(2),
+          batchRequests(3),
+          batchRequests(4)).then(function () {
+            expect(can.ajax.calls.count()).toEqual(1);
+            done();
+          });
+      });
+
+    it('does several ajax calls for delays cals', function (done) {
+      batchRequests(1);
+      batchRequests(2);
+      batchRequests(3);
+      batchRequests(4);
+
+      // Make a request with a delay
+      setTimeout(function () {
+        batchRequests(4).then(function () {
+          expect(can.ajax.calls.count()).toEqual(2);
+          done();
+        });
+      }, 150);
+    });
+  });
+
+  describe('buildCountParams() method', function () {
+    var queryAPI = GGRC.Utils.QueryAPI;
+    var relevant = {
+      type: 'Audit',
+      id: '555',
+      operation: 'relevant'
+    };
+
+    it('empty arguments. buildCountParams should return empty array',
+      function () {
+        var queries = queryAPI.buildCountParams();
+        expect(Array.isArray(queries)).toBe(true);
+        expect(queries.length).toEqual(0);
+      }
+    );
+
+    it('No relevant. buildCountParams should return array of queries',
+      function () {
+        var types = ['Assessment', 'Control'];
+
+        var queries = queryAPI.buildCountParams(types);
+        var query = queries[0];
+
+        expect(queries.length).toEqual(types.length);
+        expect(query.object_name).toEqual(types[0]);
+        expect(query.type).toEqual('count');
+        expect(query.filters).toBe(undefined);
+      }
+    );
+
+    it('Pass relevant. buildCountParams should return array of queries',
+      function () {
+        var types = ['Assessment', 'Control'];
+
+        var queries = queryAPI.buildCountParams(types, relevant);
+        var query = queries[0];
+        var expression = query.filters.expression;
+
+        expect(queries.length).toEqual(types.length);
+        expect(query.object_name).toEqual(types[0]);
+        expect(query.type).toEqual('count');
+        expect(expression.object_name).toEqual(relevant.type);
+        expect(expression.ids[0]).toEqual(relevant.id);
+        expect(expression.op.name).toEqual('relevant');
+      }
+    );
+  });
+
+  describe('refreshCounts() method', function () {
+    var relevant;
+    var widgets;
+    var refreshCounts;
+
+    beforeEach(function () {
+      refreshCounts = GGRC.Utils.CurrentPage.refreshCounts;
+      widgets = ['Program', 'AccessGroup', 'Assessment', 'Audit'];
+      relevant = {
+        id: 1,
+        type: 'Program'
+      };
+
+      spyOn(GGRC.Utils.CurrentPage, 'getWidgetModels')
+        .and.returnValue(widgets);
+      spyOn(GGRC, 'page_instance')
+        .and.returnValue(relevant);
+
+      spyOn(can, 'ajax')
+        .and.returnValues(
+        can.Deferred().resolve(
+          [{Program: {count: 3, total: 4}, selfLink: null},
+          {AccessGroup: {count: 0, total: 0}, selfLink: null}]));
+    });
+
+    it('should reinit counts', function (done) {
+      refreshCounts()
+        .then(function (counts) {
+          var reqParams;
+          var reqParamNames;
+
+          expect(can.ajax.calls.count()).toEqual(1);
+          reqParams = JSON.parse(can.ajax.calls.argsFor(0)[0].data);
+          reqParamNames = _.map(reqParams,
+          function (param) {
+            return param.object_name;
+          });
+          expect(reqParams.length).toEqual(4);
+          expect(reqParamNames).toContain('Program');
+          expect(reqParamNames).toContain('AccessGroup');
+          expect(reqParamNames).toContain('Assessment');
+          expect(reqParamNames).toContain('Audit');
+          expect(counts.Program).toEqual(4);
+          expect(counts.AccessGroup).toEqual(0);
+          done();
+        });
     });
   });
 });

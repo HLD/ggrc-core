@@ -1,5 +1,5 @@
 {{!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
 
@@ -41,12 +41,12 @@
   {{/is_allowed}}
 
   {{#any_allowed 'create' object_menu context='any'}}
-    <li class="get-started__list__item get-started__list__item--top-space hidden-widgets-list">
+    <li class="get-started__list__item get-started__list__item--top-space hidden-widgets-list top-space">
       <a href="#" class="dropdown-toggle" data-toggle="dropdown">
         <span class="get-started__list__icon-wrap">
           <i class="fa fa-plus-circle white"></i>
         </span>
-        Create new object
+        Create object
       </a>
       <div class="dropdown-menu" role="menu">
         {{#object_menu}}
@@ -69,7 +69,7 @@
 
   <li class="get-started__list__item get-started__list__item--top-space">
     {{! <a href="javascript://" data-toggle="unified-search" data-original-title="search items" data-join-object-type="MultitypeSearch"> }}
-    <a href="/objectBrowser">
+    <a href="/objectBrowser#regulation_widget">
       <span class="get-started__list__icon-wrap">
         <i class="fa fa-files-o white"></i>
       </span>

@@ -1,0 +1,107 @@
+{{!
+    Copyright (C) 2017 Google Inc.
+    Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+}}
+
+
+{{#switch attr_name}}
+  {{#case 'contact'}}
+      <tree-people-list-field {source}="instance.contact"/>
+  {{/case}}
+  {{#case 'secondary_contact'}}
+      <tree-people-list-field {source}="instance.secondary_contact"/>
+  {{/case}}
+  {{#case 'principal_assessor'}}
+      <tree-people-list-field {source}="instance.principal_assessor"/>
+  {{/case}}
+  {{#case 'secondary_assessor'}}
+      <tree-people-list-field {source}="instance.secondary_assessor"/>
+  {{/case}}
+  {{#case 'modified_by'}}
+      <tree-people-list-field {source}="instance.modified_by"/>
+  {{/case}}
+  {{#case 'kind'}}
+    {{#using kind=instance.kind}}
+      {{kind.title}}
+    {{/using}}
+  {{/case}}
+  {{#case 'fraud_related'}}
+    {{#if_equals instance.fraud_related "0"}}
+      No
+    {{/if}}
+    {{#if_equals instance.fraud_related "1"}}
+      Yes
+    {{/if}}
+  {{/case}}
+  {{#case 'significance'}}
+    {{#if_equals instance.key_control "1"}}
+      Key
+    {{/if}}
+    {{#if_equals instance.key_control "0"}}
+      Non-Key
+    {{/if}}
+  {{/case}}
+  {{#case 'means'}}
+    {{#using means=instance.means}}
+      {{means.title}}
+    {{/using}}
+  {{/case}}
+  {{#case 'frequency'}}
+    {{#using verify_frequency=instance.verify_frequency}}
+      {{verify_frequency.title}}
+    {{/using}}
+  {{/case}}
+  {{#case 'assertions'}}
+    {{#if instance.snapshot}}
+      {{#instance.assertions}}
+        <span class="with-comma">{{display_name}}</span>
+      {{/instance.assertions}}
+    {{else}}
+      {{#using items=instance.assertions}}
+        {{#items}}
+          <span class="with-comma">{{display_name}}</span>
+        {{/items}}
+      {{/using}}
+    {{/if}}
+  {{/case}}
+  {{#case 'categories'}}
+    {{#if instance.snapshot}}
+      {{#instance.categories}}
+        <span class="with-comma">{{display_name}}</span>
+      {{/instance.categories}}
+    {{else}}
+      {{#using items=instance.categories}}
+        {{#items}}
+          <span class="with-comma">{{display_name}}</span>
+        {{/items}}
+      {{/using}}
+    {{/if}}
+  {{/case}}
+  {{#case 'last_assessment_date'}}
+    {{localize_date instance.last_assessment_date}}
+  {{/case}}
+  {{#case 'status'}}
+    {{#using status=instance.status}}
+      <span class="state-value-dot {{addclass 'state-' status separator=''}}">
+        {{status}}
+      </span>
+    {{/using}}
+  {{/case}}
+
+  {{#default}}
+    {{#if_helpers '\
+    #if_equals' attr_name 'reference_url'}}
+      <related-documents instance={instance} document-type="REFERENCE_URL">
+        <div class="reference-urls-list">
+          {{#each documents}}
+            <span class="reference-urls-list__item">
+              <a class="reference-urls-list__link link" href="{{link}}" target="_blank">{{title}}</a>
+            </span>
+          {{/each}}
+        </div>
+      </related-documents>
+    {{else}}
+      {{get_default_attr_value attr_name instance}}
+    {{/if_helpers}}
+  {{/default}}
+{{/switch}}

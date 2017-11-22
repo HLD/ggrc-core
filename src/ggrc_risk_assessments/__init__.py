@@ -1,12 +1,14 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+
+"""Risk Assessment module"""
 
 from flask import Blueprint
 from sqlalchemy import orm
 
 from ggrc import settings
 from ggrc.models import all_models
-from ggrc.models.reflection import PublishOnly
+from ggrc.models import reflection
 from ggrc.rbac import permissions
 from ggrc.services.registry import service
 from ggrc_basic_permissions.contributed_roles import RoleContributions
@@ -57,9 +59,9 @@ class MixRiskAssessmentsIntoProgram(object):
     # cls.risk_assessments = db.relationship(
     pass  # 'RiskAssessment', cascade='all, delete-orphan')
 
-  _publish_attrs = [
-      PublishOnly('risk_assessments')
-  ]
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('risk_assessments', create=False, update=False),
+  )
 
   _include_links = []
 
@@ -72,6 +74,7 @@ class MixRiskAssessmentsIntoProgram(object):
         orm.subqueryload('risk_assessments'))
 
 # Mix RiskAssessments into Program
+
 
 program_type = getattr(all_models, "Program")
 program_type.__bases__ = (MixRiskAssessmentsIntoProgram,) \
@@ -106,6 +109,7 @@ class RiskAssessmentRoleContributions(RoleContributions):
           'delete': ['RiskAssessment', 'Document'],
       },
   }
+
 
 ROLE_CONTRIBUTIONS = RiskAssessmentRoleContributions()
 contributed_importables = IMPORTABLE

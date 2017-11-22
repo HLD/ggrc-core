@@ -1,35 +1,39 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 import functools
 import inspect
 
-from sqlalchemy import event
 from sqlalchemy import or_, and_
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm.collections import attribute_mapped_collection
-from werkzeug.exceptions import BadRequest
 
 from ggrc import db
 from ggrc.models.mixins import Identifiable
-from ggrc.models.mixins import Mapping
+from ggrc.models.mixins import Base
+from ggrc.models import reflection
 
 
-class Relationship(Mapping, db.Model):
+class Relationship(Base, db.Model):
   __tablename__ = 'relationships'
   source_id = db.Column(db.Integer, nullable=False)
   source_type = db.Column(db.String, nullable=False)
   destination_id = db.Column(db.Integer, nullable=False)
   destination_type = db.Column(db.String, nullable=False)
-  automapping_id = db.Column(
+  parent_id = db.Column(
       db.Integer,
       db.ForeignKey('relationships.id', ondelete='SET NULL'),
       nullable=True,
   )
-  automapping = db.relationship(
+  parent = db.relationship(
       lambda: Relationship,
       remote_side=lambda: Relationship.id
+  )
+  automapping_id = db.Column(
+      db.Integer,
+      db.ForeignKey('automappings.id', ondelete='CASCADE'),
+      nullable=True,
   )
   relationship_attrs = db.relationship(
       lambda: RelationshipAttr,
@@ -41,6 +45,13 @@ class Relationship(Mapping, db.Model):
       "relationship_attrs", "attr_value",
       creator=lambda k, v: RelationshipAttr(attr_name=k, attr_value=v)
   )
+
+  def get_related_for(self, object_type):
+    """Return related object for sent type."""
+    if object_type == self.source_type:
+      return self.destination
+    if object_type == self.destination_type:
+      return self.source
 
   @property
   def source_attr(self):
@@ -124,11 +135,7 @@ class Relationship(Mapping, db.Model):
             'destination_type', 'destination_id'),
     )
 
-  _publish_attrs = [
-      'source',
-      'destination',
-      'attrs',
-  ]
+  _api_attrs = reflection.ApiAttributes('source', 'destination', 'attrs')
   attrs.publish_raw = True
 
   def _display_name(self):
@@ -141,14 +148,11 @@ class Relationship(Mapping, db.Model):
     json["attrs"] = self.attrs.copy()  # copy in order to detach from orm
     return json
 
-event.listen(Relationship, 'before_insert', Relationship.validate_attrs)
-event.listen(Relationship, 'before_update', Relationship.validate_attrs)
-
 
 class Relatable(object):
 
   @declared_attr
-  def related_sources(cls):
+  def related_sources(cls):  # pylint: disable=no-self-argument
     joinstr = 'and_(remote(Relationship.destination_id) == {type}.id, '\
         'remote(Relationship.destination_type) == "{type}")'
     joinstr = joinstr.format(type=cls.__name__)
@@ -160,7 +164,7 @@ class Relatable(object):
         cascade='all, delete-orphan')
 
   @declared_attr
-  def related_destinations(cls):
+  def related_destinations(cls):  # pylint: disable=no-self-argument
     joinstr = 'and_(remote(Relationship.source_id) == {type}.id, '\
         'remote(Relationship.source_type) == "{type}")'
     joinstr = joinstr.format(type=cls.__name__)
@@ -190,10 +194,10 @@ class Relatable(object):
       return {obj for obj in related if obj.type in _types}
     return set(related)
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'related_sources',
       'related_destinations'
-  ]
+  )
 
   _include_links = []
 
@@ -240,7 +244,7 @@ class RelationshipAttr(Identifiable, db.Model):
       if validated_value is not None:
         attr.attr_value = validated_value
         return attr
-    raise BadRequest("Invalid attribute {}: {}".format(attr_name, attr_value))
+    raise ValueError("Invalid attribute {}: {}".format(attr_name, attr_value))
 
   @classmethod
   def _get_validators(cls, obj):

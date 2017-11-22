@@ -1,24 +1,32 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """A module containing the workflow TaskGroupTask model."""
 
 
-from datetime import date
-from datetime import datetime
+import datetime
+
 from sqlalchemy import orm
 from sqlalchemy import schema
 
 from ggrc import db
+from ggrc.access_control import roleable, role
+from ggrc.builder import simple_property
+from ggrc.fulltext.mixin import Indexed
 from ggrc.login import get_current_user
-from ggrc.models.mixins import Base, Slugged, Titled, Described, WithContact
+from ggrc.models import mixins
 from ggrc.models.types import JsonType
-from ggrc_workflows.models.mixins import RelativeTimeboxed
+from ggrc.models import reflection
 from ggrc_workflows.models.task_group import TaskGroup
 
 
-class TaskGroupTask(WithContact, Slugged, Titled, Described, RelativeTimeboxed,
-                    Base, db.Model):
+class TaskGroupTask(roleable.Roleable,
+                    mixins.Titled,
+                    mixins.Described,
+                    mixins.Slugged,
+                    mixins.Timeboxed,
+                    Indexed,
+                    db.Model):
   """Workflow TaskGroupTask model."""
 
   __tablename__ = 'task_group_tasks'
@@ -30,10 +38,10 @@ class TaskGroupTask(WithContact, Slugged, Titled, Described, RelativeTimeboxed,
 
   @classmethod
   def default_task_type(cls):
-    return "text"
+    return cls.TEXT
 
   @classmethod
-  def generate_slug_prefix_for(cls, obj):
+  def generate_slug_prefix(cls):
     return "TASK"
 
   task_group_id = db.Column(
@@ -51,9 +59,12 @@ class TaskGroupTask(WithContact, Slugged, Titled, Described, RelativeTimeboxed,
       db.String(length=250), default=default_task_type, nullable=False)
 
   response_options = db.Column(
-      JsonType(), nullable=False, default='[]')
+      JsonType(), nullable=False, default=[])
 
-  VALID_TASK_TYPES = ['text', 'menu', 'checkbox']
+  TEXT = 'text'
+  MENU = 'menu'
+  CHECKBOX = 'checkbox'
+  VALID_TASK_TYPES = [TEXT, MENU, CHECKBOX]
 
   @orm.validates('task_type')
   def validate_task_type(self, key, value):
@@ -64,36 +75,32 @@ class TaskGroupTask(WithContact, Slugged, Titled, Described, RelativeTimeboxed,
       raise ValueError(u"Invalid type '{}'".format(value))
     return value
 
-  def validate_date(self, value):
-    if isinstance(value, datetime):
-      value = value.date()
-    if value is not None and value.year <= 1900:
-      current_century = date.today().year / 100 * 100
-      year = current_century + value.year % 100
-      return date(year, value.month, value.day)
-    return value
-
+  # pylint: disable=unused-argument
   @orm.validates("start_date", "end_date")
-  def validate_end_date(self, key, value):
-    value = self.validate_date(value)
-    if key == "start_date":
-      self._start_changed = True
-    if key == "end_date" and self._start_changed and self.start_date > value:
-      self._start_changed = False
-      raise ValueError("Start date can not be after end date.")
+  def validate_date(self, key, value):
+    """Validates date's itself correctness, start_ end_ dates relative to each
+    other correctness is checked with 'before_insert' hook
+    """
+    if value is None:
+      return
+    if isinstance(value, datetime.datetime):
+      value = value.date()
+    if value < datetime.date(100, 1, 1):
+      current_century = datetime.date.today().year / 100
+      return datetime.date(value.year + current_century * 100,
+                           value.month,
+                           value.day)
     return value
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'task_group',
       'sort_index',
-      'relative_start_month',
-      'relative_start_day',
-      'relative_end_month',
-      'relative_end_day',
       'object_approval',
       'task_type',
-      'response_options'
-  ]
+      'response_options',
+      reflection.Attribute('view_start_date', update=False, create=False),
+      reflection.Attribute('view_end_date', update=False, create=False),
+  )
   _sanitize_html = []
   _aliases = {
       "title": "Summary",
@@ -101,46 +108,26 @@ class TaskGroupTask(WithContact, Slugged, Titled, Described, RelativeTimeboxed,
           "display_name": "Task Description",
           "handler_key": "task_description",
       },
-      "contact": {
-          "display_name": "Assignee",
+      "start_date": {
+          "display_name": "Start Date",
           "mandatory": True,
-          "filter_by": "_filter_by_contact",
+          "description": (
+              "Enter the task start date\nin the following format:\n"
+              "'mm/dd/yyyy'"
+          ),
       },
-      "secondary_contact": None,
-      "start_date": None,
-      "end_date": None,
+      "end_date": {
+          "display_name": "End Date",
+          "mandatory": True,
+          "description": (
+              "Enter the task end date\nin the following format:\n"
+              "'mm/dd/yyyy'"
+          ),
+      },
       "task_group": {
           "display_name": "Task Group",
           "mandatory": True,
           "filter_by": "_filter_by_task_group",
-      },
-      "relative_start_date": {
-          "display_name": "Start",
-          "mandatory": True,
-          "description": (
-              "Enter the task start date in the following format:\n"
-              "'mm/dd/yyyy' for one time workflows\n"
-              "'#' for weekly workflows (where # represents day "
-              "of the week & Monday = day 1)\n"
-              "'dd' for monthly workflows\n"
-              "'mmm/mmm/mmm/mmm dd' for monthly workflows "
-              "e.g. feb/may/aug/nov 17\n"
-              "'mm/dd' for yearly workflows"
-          ),
-      },
-      "relative_end_date": {
-          "display_name": "End",
-          "mandatory": True,
-          "description": (
-              "Enter the task end date in the following format:\n"
-              "'mm/dd/yyyy' for one time workflows\n"
-              "'#' for weekly workflows (where # represents day "
-              "of the week & Monday = day 1)\n"
-              "'dd' for monthly workflows\n"
-              "'mmm/mmm/mmm/mmm dd' for monthly workflows "
-              "e.g. feb/may/aug/nov 17\n"
-              "'mm/dd' for yearly workflows"
-          ),
       },
       "task_type": {
           "display_name": "Task Type",
@@ -157,6 +144,18 @@ class TaskGroupTask(WithContact, Slugged, Titled, Described, RelativeTimeboxed,
         (predicate(TaskGroup.slug) | predicate(TaskGroup.title))
     ).exists()
 
+  def _get_view_date(self, date):
+    if date and self.task_group and self.task_group.workflow:
+      return self.task_group.workflow.calc_next_adjusted_date(date)
+
+  @simple_property
+  def view_start_date(self):
+    return self._get_view_date(self.start_date)
+
+  @simple_property
+  def view_end_date(self):
+    return self._get_view_date(self.end_date)
+
   @classmethod
   def eager_query(cls):
     query = super(TaskGroupTask, cls).eager_query()
@@ -168,23 +167,30 @@ class TaskGroupTask(WithContact, Slugged, Titled, Described, RelativeTimeboxed,
     return self.title + '<->' + self.task_group.display_name
 
   def copy(self, _other=None, **kwargs):
-    columns = [
-        'title', 'description',
-        'task_group', 'sort_index',
-        'relative_start_month', 'relative_start_day',
-        'relative_end_month', 'relative_end_day',
-        'start_date', 'end_date',
-        'contact', 'modified_by',
-        'task_type', 'response_options',
-    ]
+    columns = ['title',
+               'description',
+               'task_group',
+               'sort_index',
+               'start_date',
+               'end_date',
+               'access_control_list',
+               'modified_by',
+               'task_type',
+               'response_options']
 
-    contact = None
     if kwargs.get('clone_people', False):
-      contact = self.contact
+      access_control_list = [
+          {"ac_role_id": i.ac_role_id, "person": {"id": i.person_id}}
+          for i in self.access_control_list]
     else:
-      contact = get_current_user()
-
+      role_id = {
+          v: k for (k, v) in
+          role.get_custom_roles_for(self.type).iteritems()
+      }['Task Assignees']
+      access_control_list = [{"ac_role_id": role_id,
+                              "person": {"id": get_current_user().id}}]
     kwargs['modified_by'] = get_current_user()
-
-    target = self.copy_into(_other, columns, contact=contact, **kwargs)
-    return target
+    return self.copy_into(_other,
+                          columns,
+                          access_control_list=access_control_list,
+                          **kwargs)

@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 scope = "Private Program"
@@ -10,7 +10,7 @@ description = """
   """
 permissions = {
     "read": [
-        "ObjectDocument",
+        "Document",
         "ObjectObjective",
         "ObjectPerson",
         "Program",
@@ -20,7 +20,8 @@ permissions = {
     ],
     "create": [
         "Audit",
-        "ObjectDocument",
+        "Snapshot",
+        "Document",
         "ObjectObjective",
         "ObjectPerson",
         "Relationship",
@@ -29,7 +30,8 @@ permissions = {
         "__GGRC_ALL__"
     ],
     "update": [
-        "ObjectDocument",
+        "Snapshot",
+        "Document",
         "ObjectObjective",
         "ObjectPerson",
         "Program",
@@ -37,7 +39,7 @@ permissions = {
     ],
     "delete": [
         "Program",
-        "ObjectDocument",
+        "Document",
         "ObjectObjective",
         "ObjectPerson",
         "Relationship",

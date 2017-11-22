@@ -1,5 +1,5 @@
 /*!
- Copyright (C) 2016 Google Inc.
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -17,27 +17,10 @@
     destroy: 'DELETE /api/comments/{id}',
     create: 'POST /api/comments',
     mixins: [],
-    attributes: {
-      context: 'CMS.Models.Context.stub',
-      modified_by: 'CMS.Models.Person.stub'
-    },
     init: function () {
+      this.validatePresenceOf('description');
       if (this._super) {
         this._super.apply(this, arguments);
-      }
-      this.validatePresenceOf('description');
-    },
-    info_pane_options: {
-      documents: {
-        model: CMS.Models.Document,
-        mapping: 'documents_and_urls',
-        show_view: GGRC.mustache_path + '/base_templates/attachment.mustache',
-        sort_function: GGRC.Utils.sortingHelpers.commentSort
-      },
-      urls: {
-        model: CMS.Models.Document,
-        mapping: 'urls',
-        show_view: GGRC.mustache_path + '/base_templates/urls.mustache'
       }
     }
   }, {
@@ -74,6 +57,18 @@
           });
           this.attr('description', ev.oldVal);
         }.bind(this));
+    },
+
+    /**
+     * Return the "name" of the comment as represented to end users.
+     *
+     * If the "value" of the comment (i.e. its description) does not exist,
+     * an empty string is returned.
+     *
+     * @return {String} - an end user-friendly "name" of the comment
+     */
+    display_name: function () {
+      return this.description || '';
     }
   });
 })(window.can, window.GGRC, window.CMS);

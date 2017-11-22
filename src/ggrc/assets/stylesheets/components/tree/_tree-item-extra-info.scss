@@ -1,0 +1,232 @@
+/*
+ * Copyright (C) 2017 Google Inc.
+ * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+ */
+
+$popoverArrowSize: 10px;
+
+tree-item-extra-info {
+  display: flex;
+  flex-direction: row;
+  padding: 0 16px 0 8px;
+  min-width: 40px;
+  box-sizing: border-box;
+  position: relative;
+
+  .tree-item__overdue {
+    position: absolute;
+    right: 42px;
+    top: 1px;
+    font-weight: 500;
+  }
+
+  .popover-target {
+    &.active {
+      & + .tree-item__popover {
+        visibility: visible;
+        opacity: 1;
+      }
+    }
+  }
+
+  h3 {
+    font-weight: normal;
+    font-size: 150%;
+    margin-bottom: 10px;
+    white-space: nowrap;
+  }
+
+  .tree-item__popover {
+    visibility: hidden;
+    position: absolute;
+    background-color: $white;
+    border: 1px solid $warmGray;
+    box-shadow: 0 3px 1px rgba(0,0,0,.05);
+    min-width: 220px;
+    z-index: 1000;
+    padding: 10px;
+    right: calc(100% + 5px);
+    top: -22px;
+    transition: opacity 300ms, visibility 300ms;
+    opacity: 0;
+
+
+    &:hover {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    &:after, &:before {
+      left: 100%;
+      top: 30px;
+      border: solid transparent;
+      content: " ";
+      height: 0;
+      width: 0;
+      position: absolute;
+      pointer-events: none;
+    }
+
+    &:after {
+      border-color: rgba(255, 255, 255, 0);
+      border-left-color: #fff;
+      border-width: $popoverArrowSize;
+      margin-top: -$popoverArrowSize;
+    }
+    &:before {
+      border-color: rgba(204, 204, 204, 0);
+      border-left-color: #ccc;
+      border-width: 11px;
+      margin-top: -11px;
+    }
+
+    &-content {
+      overflow-y: auto;
+      max-height: 450px;
+    }
+
+    i {
+      margin-left: 15px;
+      margin-right: 5px;
+    }
+
+    section {
+      display: flex;
+      flex-direction: column;
+
+      mapped-counter {
+        margin-bottom: 5px;
+      }
+    }
+  }
+
+  * {
+    &.state-overdue {
+    color: $status-declined;
+    }
+  }
+
+  & > i {
+    visibility: hidden;
+    color: $gray;
+    &.popover-target {
+      font-size: 19px;
+    }
+    &.state-overdue {
+      color: $status-declined;
+      visibility: visible;
+    }
+  }
+}
+
+.sub-item-content {
+  &:hover {
+    tree-item-extra-info {
+      .tree-item__overdue {
+        z-index: -1;
+      }
+    }
+  }
+}
+
+.tree-item-actions {
+  margin-left: 10px;
+  margin-right: 10px;
+  visibility: hidden;
+
+  &--visible {
+    visibility: visible;
+  }
+
+  &__content {
+    background-color: $white;
+    display: flex;
+    border: 1px solid $warmGray;
+    border-radius: 5px;
+    margin: auto 0;
+    position: relative;
+
+    &:hover {
+      ul {
+        display: block;
+      }
+    }
+
+    a {
+      text-decoration: none;
+      line-height: 18px;
+
+      &:hover {
+        text-decoration: none;
+      }
+    }
+
+    > a {
+      display: flex;
+      margin: 3px 5px;
+      i {
+        font-size: 13px !important;
+
+        &:first-child:not(:only-child) {
+          margin-right: 5px;
+        }
+      }
+    }
+    > ul {
+      display: none;
+      position: absolute;
+      top: 20px;
+      width: 220px;
+      background-color: $white;
+      list-style-type: none;
+      z-index: 1000;
+      border: 1px solid $warmGray;
+      margin: 0;
+      box-shadow: 0 3px 1px rgba(0,0,0,.05);
+
+      &:hover {
+        display: block;
+      }
+
+      li {
+        margin: 0;
+        padding: 0;
+        transition: all linear 0.1s;
+
+        &:hover {
+          background-color: $lightGray !important;
+
+          > a, show-related-assessments-button > a,
+          tree-item-map > a, sub-tree-models > a {
+            color: $black !important;
+          }
+        }
+        > a, show-related-assessments-button > a,
+        tree-item-map > a, sub-tree-models > a {
+          line-height: 30px;
+          color: $black;
+          display: block;
+          font-size: 13px;
+          padding: 5px 15px;
+          text-decoration: none;
+          cursor: pointer;
+
+          i.fa {
+            margin-right: 3px;
+            width: 16px;
+            font-size: 13px;
+          }
+        }
+
+        .openclose {
+          float: none !important;
+          padding: 0;
+        }
+
+        &.splitter {
+          border-bottom: 1px solid $lightGray;
+        }
+      }
+    }
+  }
+}

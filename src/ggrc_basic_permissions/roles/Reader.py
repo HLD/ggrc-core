@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """A module with configuration of the Reader role's permissions."""
@@ -11,12 +11,14 @@ from ggrc_basic_permissions.roles.Creator import owner_update
 
 scope = "System"
 description = """
-  This role grants a user basic, read-only, access permission to a gGRC
+  This role grants a user basic, read-only, access permission to a GGRC
   instance.
   """
 permissions = {
     "read": [
+        "AccessControlList",
         "Audit",
+        "Snapshot",
         "Categorization",
         "Category",
         "ControlCategory",
@@ -42,7 +44,6 @@ permissions = {
         "Market",
         "Objective",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectObjective",
         "ObjectPerson",
         "Option",
@@ -61,10 +62,8 @@ permissions = {
         "Process",
         "SystemControl",
         "SystemSystem",
-        "ObjectOwner",
         "Person",
         "Program",
-        "Request",
         "Revision",
         "Role",
         "UserRole",
@@ -86,9 +85,6 @@ permissions = {
         "ControlAssertion",
         "Control",
         "Comment",
-        "Assessment",
-        "AssessmentTemplate",
-        "Issue",
         "DataAsset",
         "AccessGroup",
         "Directive",
@@ -101,14 +97,6 @@ permissions = {
         "Help",
         "Market",
         "Objective",
-        {
-            "type": "ObjectDocument",
-            "terms": {
-                "property_name": "documentable",
-                "action": "update",
-            },
-            "condition": "relationship",
-        },
         "ObjectPerson",
         "Option",
         "OrgGroup",
@@ -129,18 +117,9 @@ permissions = {
         "SystemOrProcess",
         "System",
         "Process",
-        {
-            "type": "ObjectOwner",
-            "terms": {
-                "property_name": "ownable.modified_by",
-                "value": "$current_user"
-            },
-            "condition": "is"
-        },
         "Person",
         "Program",
         "Role",
-        "UserRole",
         "Context",
         "BackgroundTask",
     ],

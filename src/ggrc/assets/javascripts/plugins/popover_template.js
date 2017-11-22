@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 (function(root, $, GGRC) {
@@ -53,7 +53,7 @@
     this.popover[this._isShown ? 'hide' : 'show']();
 
     if (!this._isShown) {
-      this.popover.tip().on('click', '.btn-success', $.proxy(this.close, this));
+      this.popover.tip().on('click', '.btn-green', $.proxy(this.close, this));
     }
     this._isShown = !this._isShown;
   };

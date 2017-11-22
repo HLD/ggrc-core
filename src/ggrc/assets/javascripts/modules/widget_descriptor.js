@@ -1,7 +1,9 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
+
+import SummaryWidgetController from '../controllers/summary_widget_controller';
 
 (function ($, CMS, GGRC) {
   // A widget descriptor has the minimum five properties:
@@ -38,7 +40,8 @@
             model: instance.constructor,
             widget_view: widgetView || defaultInfoWidgetView
           },
-          order: 5
+          order: 5,
+          uncountable: true,
         });
     },
     /*
@@ -57,13 +60,37 @@
             return instance.constructor.title_singular + ' Summary';
           },
           widget_icon: 'pie-chart',
-          content_controller: GGRC.Controllers.SummaryWidget,
+          content_controller: SummaryWidgetController,
           content_controller_options: {
             instance: instance,
             model: instance.constructor,
             widget_view: widgetView || defaultView
           },
-          order: 3
+          order: 3,
+          uncountable: true,
+        });
+    },
+    make_dashboard_widget: function (instance, widgetView) {
+      var defaultView = GGRC.mustache_path +
+        '/base_objects/dashboard.mustache';
+      return new this(
+        instance.constructor.shortName + ':dashboard', {
+          widget_id: 'dashboard',
+          widget_name: function () {
+            if (instance.constructor.title_singular === 'Person') {
+              return 'Dashboard';
+            }
+            return instance.constructor.title_singular + ' Dashboard';
+          },
+          widget_icon: 'tachometer',
+          content_controller: GGRC.Controllers.DashboardWidget,
+          content_controller_options: {
+            instance: instance,
+            model: instance.constructor,
+            widget_view: widgetView || defaultView
+          },
+          order: 6,
+          uncountable: true,
         });
     },
     /*
@@ -71,15 +98,24 @@
       You must provide:
       instance - an instance that is a subclass of can.Model.Cacheable
       farModel - a can.Model.Cacheable class
-      mapping - a mapping object taken from the instance
       extenders [optional] - an array of objects that will extend the default widget config.
     */
-    make_tree_view: function (instance, farModel, mapping, extenders) {
-      var descriptor = {
-        content_controller: CMS.Controllers.TreeView,
-        content_controller_selector: 'ul',
-        widget_initial_content: '<ul class="tree-structure new-tree"></ul>',
-        widget_id: farModel.table_singular,
+    make_tree_view: function (instance, farModel, extenders, id) {
+      var descriptor;
+      var objectVersionConfig = GGRC.Utils.ObjectVersions
+        .getWidgetConfig(id);
+      // Should not even try to create descriptor if configuration options are missing
+      if (!instance || !farModel) {
+        console
+          .debug('Arguments are missing or have incorrect format', arguments);
+        return null;
+      }
+      descriptor = {
+        widgetType: 'treeview',
+        treeViewDepth: 2,
+        widget_id: objectVersionConfig.isObjectVersion ?
+          objectVersionConfig.widgetId :
+          farModel.table_singular,
         widget_guard: function () {
           if (
             farModel.title_plural === 'Audits' &&
@@ -90,41 +126,43 @@
           return true;
         },
         widget_name: function () {
+          var farModelName = objectVersionConfig.isObjectVersion ?
+            objectVersionConfig.widgetName :
+            farModel.title_plural;
           var $objectArea = $('.object-area');
           if (
             $objectArea.hasClass('dashboard-area') ||
             instance.constructor.title_singular === 'Person'
           ) {
             if (/dashboard/.test(window.location)) {
-              return 'My ' + farModel.title_plural;
+              return 'My ' + farModelName;
             }
-            return farModel.title_plural;
+            return farModelName;
           } else if (farModel.title_plural === 'Audits') {
             return 'Mapped Audits';
           }
           return (
             farModel.title_plural === 'References' ?
                                          'Linked ' : 'Mapped '
-          ) + farModel.title_plural;
+          ) + farModelName;
         },
         widget_icon: farModel.table_singular,
         object_category: farModel.category || 'default',
         model: farModel,
+        objectVersion: objectVersionConfig.isObjectVersion,
         content_controller_options: {
-          child_options: [],
           draw_children: true,
           parent_instance: instance,
           model: farModel,
-          list_loader: function () {
-            return mapping.refresh_list();
-          }
+          objectVersion: objectVersionConfig.isObjectVersion
         }
       };
 
       $.extend.apply($, [true, descriptor].concat(extenders || []));
 
       return new this(
-        instance.constructor.shortName + ':' + farModel.table_singular,
+        instance.constructor.shortName + ':' +
+        id || instance.constructor.shortName,
         descriptor
       );
     },
@@ -152,4 +190,4 @@
       return ret;
     }
   }, {});
-})(this.can.$, this.CMS, this.GGRC);
+})(window.can.$, window.CMS, window.GGRC);

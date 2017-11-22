@@ -1,10 +1,13 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Tests for workflow cycle state propagation between tasks and task groups"""
 
 # pylint: disable=invalid-name
+import datetime as dtm
 
+from copy import deepcopy
+from threading import Thread
 from freezegun import freeze_time
 
 from ggrc import db
@@ -18,11 +21,11 @@ from integration.ggrc.api_helper import Api
 from integration.ggrc.generator import ObjectGenerator
 
 
-class TestWorkflowCycleStatePropagantion(TestCase):
+class TestWorkflowCycleStatePropagation(TestCase):
   """Test case for cycle task to cycle task group status propagation"""
 
   def setUp(self):
-    TestCase.setUp(self)
+    super(TestWorkflowCycleStatePropagation, self).setUp()
     self.api = Api()
     self.generator = WorkflowsGenerator()
     self.object_generator = ObjectGenerator()
@@ -30,31 +33,27 @@ class TestWorkflowCycleStatePropagantion(TestCase):
     self.weekly_wf = {
         "title": "weekly thingy",
         "description": "start this many a time",
-        "frequency": "weekly",
+        "unit": "week",
+        "repeat_every": 1,
         "task_groups": [{
             "title": "weekly task group",
             "task_group_tasks": [{
                 "title": "weekly task 1",
-                "relative_end_day": 1,
-                "relative_end_month": None,
-                "relative_start_day": 5,
-                "relative_start_month": None,
+                "start_date": dtm.date(2016, 6, 10),
+                "end_date": dtm.date(2016, 6, 13),
             }, {
                 "title": "weekly task 1",
-                "relative_end_day": 1,
-                "relative_end_month": None,
-                "relative_start_day": 1,
-                "relative_start_month": None,
-            }
-            ]},
+                "start_date": dtm.date(2016, 6, 10),
+                "end_date": dtm.date(2016, 6, 13),
+            }]},
         ]
     }
 
   def test_weekly_state_transitions_assigned_inprogress(self):
-    "Test that starting one cycle task changes cycle task group"
-    _, wf = self.generator.generate_workflow(self.weekly_wf)
+    """Test that starting one cycle task changes cycle task group"""
 
     with freeze_time("2016-6-10 13:00:00"):  # Friday, 6/10/2016
+      _, wf = self.generator.generate_workflow(self.weekly_wf)
       self.generator.activate_workflow(wf)
 
       ctg = db.session.query(CycleTaskGroup).join(
@@ -113,10 +112,10 @@ class TestWorkflowCycleStatePropagantion(TestCase):
       self.assertEqual(ctg.status, "Assigned")
 
   def test_weekly_state_transitions_inprogress_finished(self):
-    "Test In Progress to Finished transitions"
-    _, wf = self.generator.generate_workflow(self.weekly_wf)
+    """Test In Progress to Finished transitions"""
 
     with freeze_time("2016-6-10 13:00:00"):  # Friday, 6/10/2016
+      _, wf = self.generator.generate_workflow(self.weekly_wf)
       self.generator.activate_workflow(wf)
 
       ctg = db.session.query(CycleTaskGroup).join(
@@ -162,10 +161,10 @@ class TestWorkflowCycleStatePropagantion(TestCase):
       self.assertEqual(ctg.status, "InProgress")
 
   def test_weekly_state_transitions_finished_verified(self):
-    "Test Finished to Verified transitions"
-    _, wf = self.generator.generate_workflow(self.weekly_wf)
+    """Test Finished to Verified transitions"""
 
     with freeze_time("2016-6-10 13:00:00"):  # Friday, 6/10/2016
+      _, wf = self.generator.generate_workflow(self.weekly_wf)
       self.generator.activate_workflow(wf)
 
       ctg = db.session.query(CycleTaskGroup).join(
@@ -213,10 +212,10 @@ class TestWorkflowCycleStatePropagantion(TestCase):
       self.assertEqual(ctg.status, "Verified")
 
   def test_weekly_state_transitions_finished_declined(self):
-    "Test Finished to Declined transitions"
-    _, wf = self.generator.generate_workflow(self.weekly_wf)
+    """Test Finished to Declined transitions"""
 
     with freeze_time("2016-6-10 13:00:00"):  # Friday, 6/10/2016
+      _, wf = self.generator.generate_workflow(self.weekly_wf)
       self.generator.activate_workflow(wf)
 
       ctg = db.session.query(CycleTaskGroup).join(
@@ -246,3 +245,93 @@ class TestWorkflowCycleStatePropagantion(TestCase):
       self.assertEqual(first_ct.status, "Declined")
       self.assertEqual(second_ct.status, "Finished")
       self.assertEqual(ctg.status, "InProgress")
+
+  def test_deleted_task_state_transitions(self):
+    """Test InProgress to Finished transition after task is deleted"""
+
+    with freeze_time("2016-6-10 13:00:00"):  # Friday, 6/10/2016
+      _, wf = self.generator.generate_workflow(self.weekly_wf)
+      self.generator.activate_workflow(wf)
+
+      ctg = db.session.query(CycleTaskGroup).join(
+          Cycle).join(Workflow).filter(Workflow.id == wf.id).all()[0]
+      first_ct, second_ct = db.session.query(CycleTaskGroupObjectTask).join(
+          Cycle).join(Workflow).filter(Workflow.id == wf.id).all()
+
+      # Move first task to InProgress
+      self.generator.modify_object(first_ct, {"status": "InProgress"})
+      self.generator.modify_object(first_ct, {"status": "Finished"})
+      # Delete second task
+      response = self.generator.api.delete(second_ct)
+      self.assert200(response)
+
+      ctg = db.session.query(CycleTaskGroup).get(ctg.id)
+      self.assertEqual(ctg.status, "Finished")
+
+  def test_cycle_change_on_ct_status_transition(self):
+    """Test cycle is_current change on task Finished to InProgress transition
+    """
+    with freeze_time("2016-6-10 13:00:00"):  # Friday, 6/10/2016
+      _, wf = self.generator.generate_workflow(self.weekly_wf)
+      self.generator.activate_workflow(wf)
+
+    ctg = db.session.query(
+        CycleTaskGroup
+    ).join(
+        Cycle
+    ).join(
+        Workflow
+    ).filter(
+        Workflow.id == wf.id
+    ).one()
+    c_id = ctg.cycle.id
+    first_ct, second_ct = db.session.query(CycleTaskGroupObjectTask).join(
+        Cycle).join(Workflow).filter(Workflow.id == wf.id).all()
+    self.api.put(first_ct, {"status": "Verified"})
+    self.api.put(second_ct, {"status": "Verified"})
+    # cycle now should have is_current == False
+    cycle = db.session.query(Cycle).get(c_id)
+
+    self.assertEqual(cycle.is_current, False)
+
+    # Move second task back to InProgress
+    self.api.put(second_ct, {"status": "InProgress"})
+    # cycle now should have is_current == True
+
+    cycle = db.session.query(Cycle).get(ctg.cycle.id)
+    self.assertEqual(cycle.is_current, True)
+
+  def test_async_request_state_transitions(self):
+    """Test asynchronous transitions"""
+    def change_state(cycle_task, status):
+      self.generator.api.put(cycle_task, {"status": status})
+
+    updated_wf = deepcopy(self.weekly_wf)
+    updated_wf["task_groups"][0]["task_group_tasks"].extend(
+        [{"title": "weekly task 1"} for _ in xrange(3)])
+
+    with freeze_time("2016-6-10 13:00:00"):  # Friday, 6/10/2016
+      _, wf = self.generator.generate_workflow(updated_wf)
+      self.generator.activate_workflow(wf)
+
+      ctg = db.session.query(CycleTaskGroup).join(
+          Cycle).join(Workflow).filter(Workflow.id == wf.id).all()[0]
+
+      cycle_tasks = db.session.query(CycleTaskGroupObjectTask).join(
+          Cycle).join(Workflow).filter(Workflow.id == wf.id).all()
+
+      # Move all tasks to InProgress
+      threads = []
+      for cycle_task in cycle_tasks:
+        change_state(cycle_task, "InProgress")
+        threads.append(Thread(target=change_state,
+                              args=(cycle_task, "Finished")))
+
+      for t in threads:
+        t.start()
+      for t in threads:
+        t.join()
+
+      db.session.commit()
+      ctg = db.session.query(CycleTaskGroup).get(ctg.id)
+      self.assertEqual(ctg.status, "Finished")

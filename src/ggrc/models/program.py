@@ -1,23 +1,24 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
+from ggrc.fulltext.mixin import Indexed
+from ggrc.access_control.roleable import Roleable
 from ggrc.models.context import HasOwnContext
 from ggrc.models.mixins import BusinessObject
 from ggrc.models.mixins import CustomAttributable
-from ggrc.models.mixins import Timeboxed
+from ggrc.models.mixins import LastDeprecatedTimeboxed
 from ggrc.models.deferred import deferred
-from ggrc.models.object_owner import Ownable
+from ggrc.models.object_document import PublicDocumentable
 from ggrc.models.object_person import Personable
-from ggrc.models.reflection import AttributeInfo
+from ggrc.models import reflection
 from ggrc.models.relationship import Relatable
 from ggrc.models.track_object_state import HasObjectState
-from ggrc.models.track_object_state import track_state_for_class
 
 
-class Program(HasObjectState, CustomAttributable,
-              Personable, Relatable, HasOwnContext, Timeboxed,
-              Ownable, BusinessObject, db.Model):
+class Program(HasObjectState, CustomAttributable, PublicDocumentable, Roleable,
+              Personable, Relatable, HasOwnContext, LastDeprecatedTimeboxed,
+              BusinessObject, Indexed, db.Model):
   __tablename__ = 'programs'
 
   KINDS = ['Directive']
@@ -28,28 +29,26 @@ class Program(HasObjectState, CustomAttributable,
   audits = db.relationship(
       'Audit', backref='program', cascade='all, delete-orphan')
 
-  _publish_attrs = [
-      'kind',
-      'audits',
-  ]
+  _api_attrs = reflection.ApiAttributes('kind', 'audits')
   _include_links = []
   _aliases = {
-      "url": "Program URL",
+      "document_url": None,
+      "document_evidence": None,
       "owners": None,
       "program_owner": {
           "display_name": "Manager",
           "mandatory": True,
-          "type": AttributeInfo.Type.USER_ROLE,
+          "type": reflection.AttributeInfo.Type.USER_ROLE,
           "filter_by": "_filter_by_program_owner",
       },
       "program_editor": {
           "display_name": "Editor",
-          "type": AttributeInfo.Type.USER_ROLE,
+          "type": reflection.AttributeInfo.Type.USER_ROLE,
           "filter_by": "_filter_by_program_editor",
       },
       "program_reader": {
           "display_name": "Reader",
-          "type": AttributeInfo.Type.USER_ROLE,
+          "type": reflection.AttributeInfo.Type.USER_ROLE,
           "filter_by": "_filter_by_program_reader",
       },
   }
@@ -73,5 +72,3 @@ class Program(HasObjectState, CustomAttributable,
     query = super(Program, cls).eager_query()
     return cls.eager_inclusions(query, Program._include_links).options(
         orm.subqueryload('audits'))
-
-track_state_for_class(Program)

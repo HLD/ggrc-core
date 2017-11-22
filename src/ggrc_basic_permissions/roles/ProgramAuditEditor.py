@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 scope = "Audit Implied"
@@ -8,15 +8,15 @@ description = """
   """
 permissions = {
     "read": [
-        "Request",
         "Comment",
         "Assessment",
+        "AssessmentTemplate",
         "Issue",
         "Audit",
+        "Snapshot",
         "AuditObject",
         "Meeting",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
@@ -25,13 +25,13 @@ permissions = {
         "Context",
     ],
     "create": [
-        "Request",
+        "Snapshot",
         "Comment",
         "Assessment",
+        "AssessmentTemplate",
         "Issue",
         "Meeting",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
@@ -43,40 +43,40 @@ permissions = {
     ],
     "update": [
         {
-            "type": "Assessment",
+            "type": "Audit",
             "terms": {
-                "list_property": "owners",
-                "value": "$current_user"
+                "property_name": "archived",
+                "prevent_if": True
             },
-            "condition": "contains"
+            "condition": "has_not_changed"
         },
-        {
-            "type": "Issue",
-            "terms": {
-                "list_property": "owners",
-                "value": "$current_user"
-            },
-            "condition": "contains"
-        },
-        "Request",
-        "Audit",
+        "Assessment",
+        "AssessmentTemplate",
+        "Issue",
+        "Snapshot",
         "AuditObject",
         "Meeting",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
         "Meeting"
     ],
     "delete": [
+        "AssessmentTemplate",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
         "Meeting",
-        "Audit",
+        {
+            "type": "Audit",
+            "terms": {
+                "property_name": "archived",
+                "prevent_if": False
+            },
+            "condition": "has_changed"
+        },
         "AuditObject"
     ]
 }

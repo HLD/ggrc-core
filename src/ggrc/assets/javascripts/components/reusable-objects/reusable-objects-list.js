@@ -1,5 +1,5 @@
 /*!
- Copyright (C) 2016 Google Inc.
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -7,96 +7,63 @@
   'use strict';
 
   var mapper = {
-    createRelationship: function (source, destination) {
+    mapObjects: function (source, destination) {
       return new CMS.Models.Relationship({
-        context: source.context,
-        source: source.stub(),
+        context: source.context || {id: null},
+        source: source,
         destination: destination
       });
-    },
-    createObjectRelationship: function (source, destination) {
-      return new CMS.Models.ObjectDocument({
-        context: source.context,
-        documentable: source,
-        document: destination
-      });
-    },
-    isEvidence: function (type) {
-      return type === 'evidence';
-    },
-    mapObjects: function (source, destination, type) {
-      return this.isEvidence(type) ?
-        this.createObjectRelationship(source, destination) :
-        this.createRelationship(source, destination);
     }
   };
 
-  can.Component.extend({
+  GGRC.Components('reusableObjectsList', {
     tag: 'reusable-objects-list',
-    scope: {
-      baseInstance: null,
-      checkReusedStatus: false,
-      evidenceList: [],
-      urlList: [],
-      isSaving: false,
-      setHasSelected: function () {
-        var hasSelected =
-          this.attr('evidenceList.length') || this.attr('urlList.length');
-        this.attr('hasSelected', hasSelected);
+    viewModel: {
+      define: {
+        baseInstanceDocuments: {
+          get: function () {
+            return this.attr('urls').concat(this.attr('evidences'));
+          }
+        },
+        hasSelected: {
+          get: function () {
+            return this.attr('documentList.length');
+          }
+        }
       },
-      getMapObjects: function (source, list, mapperType) {
-        return Array.prototype.filter
-        // Get Array of unique items
-          .call(list, function (item, index) {
+      evidences: [],
+      urls: [],
+      baseInstance: {},
+      documentList: [],
+      isSaving: false,
+      baseInstanceDocuments: [],
+      getMapObjects: function (source, list) {
+        return list
+          .filter(function (item, index) {
             return index === list.indexOf(item);
           })
           // Get Array of mapped models
           .map(function (destination) {
             return mapper
-              .mapObjects(source, destination, mapperType)
+              .mapObjects(source, destination)
               .save();
           });
       },
-      getReusedObjectList: function () {
-        var source = this.attr('baseInstance');
-        var evidences =
-          this.getMapObjects(source, this.attr('evidenceList'), 'evidence');
-        var urls =
-          this.getMapObjects(source, this.attr('urlList'));
-        return [].concat(evidences, urls);
-      },
       reuseSelected: function () {
-        var reusedObjectList = this.getReusedObjectList();
-
+        var reusedObjectList =
+          this.getMapObjects(
+            this.attr('baseInstance'),
+            this.attr('documentList'));
         this.attr('isSaving', true);
-        this.attr('checkReusedStatus', false);
 
         can.when.apply(can, reusedObjectList)
-          .done(function () {
-            can.$(document.body).trigger('ajax:flash', {
-              success: 'Selected evidences are reused'
-            });
-          })
-          .fail(function () {
-            can.$(document.body).trigger('ajax:flash', {
-              error: 'Selected evidences were not reused'
-            });
-          })
           .always(this.restoreDefaults.bind(this));
       },
       restoreDefaults: function () {
-        this.attr('evidenceList').replace([]);
-        this.attr('urlList').replace([]);
+        this.attr('documentList').replace([]);
         this.attr('isSaving', false);
-        this.attr('checkReusedStatus', true);
-      }
-    },
-    events: {
-      '{scope.evidenceList} length': function () {
-        this.scope.setHasSelected();
-      },
-      '{scope.urlList} length': function () {
-        this.scope.setHasSelected();
+        this.dispatch('afterObjectReused');
+        this.attr('baseInstance').dispatch('refreshInstance');
       }
     }
   });

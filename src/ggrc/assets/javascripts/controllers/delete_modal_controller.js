@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -41,7 +41,13 @@ GGRC.Controllers.Modals("GGRC.Controllers.Delete", {
                                // Do not re-enable the form elements.
 
     }).fail(function(xhr, status){
-      $(document.body).trigger("ajax:flash", { error : xhr.responseText });
+      var message = xhr.responseJSON;
+
+      if (xhr.responseJSON && xhr.responseJSON.message) {
+        message = xhr.responseJSON.message;
+      }
+
+      GGRC.Errors.notifier('error', message);
     }), el.add(cancel_button).add(modal_backdrop));
   }
 

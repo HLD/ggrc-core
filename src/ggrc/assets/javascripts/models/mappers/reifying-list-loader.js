@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -13,7 +13,7 @@
       else
         this.source = source;
     },
-    insert_from_source_binding: function (binding, results, index) {
+    insert_from_source_binding: function (binding, results) {
       var self = this;
       var refreshQueue = new RefreshQueue();
       var newResults = [];

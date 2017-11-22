@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Integration tests for "preconditions_failed" CAV and CAable fields logic."""
@@ -194,12 +194,12 @@ class TestPreconditionsFailed(TestCase):
         dropdown_parameters=("foo,evidence_required", "0,2"),
         value="evidence_required",
     )
-    evidence = factories.DocumentFactory(
+    evidence = factories.EvidenceFactory(
         title="Mandatory evidence",
     )
-    factories.ObjectDocumentFactory(
-        documentable=self.assessment,
-        document=evidence,
+    factories.RelationshipFactory(
+        source=self.assessment,
+        destination=evidence,
     )
 
     preconditions_failed = self.assessment.preconditions_failed
@@ -270,7 +270,7 @@ class TestPreconditionsFailed(TestCase):
 
     self.assertEqual(preconditions_failed, True)
 
-  def test_preconditions_failed_with_several_mandatory_evidences(self):
+  def test_preconditions_failed_with_missing_several_mandatory_evidences(self):
     """Preconditions failed if count(evidences) < count(evidences_required)."""
     ca1 = CustomAttributeMock(
         self.assessment,
@@ -285,12 +285,12 @@ class TestPreconditionsFailed(TestCase):
         value="evidence_required"
     )
     # only one evidence provided yet
-    evidence = factories.DocumentFactory(
+    evidence = factories.EvidenceFactory(
         title="Mandatory evidence",
     )
-    factories.ObjectDocumentFactory(
-        documentable=self.assessment,
-        document=evidence,
+    factories.RelationshipFactory(
+        source=self.assessment,
+        destination=evidence,
     )
 
     preconditions_failed = self.assessment.preconditions_failed
@@ -299,13 +299,36 @@ class TestPreconditionsFailed(TestCase):
     self.assertEqual(ca1.value.preconditions_failed, ["evidence"])
     self.assertEqual(ca2.value.preconditions_failed, ["evidence"])
 
+  def test_preconditions_failed_with_several_mandatory_evidences(self):
+    """No preconditions failed if evidences required by CAs are present"""
+    ca1 = CustomAttributeMock(
+        self.assessment,
+        attribute_type="Dropdown",
+        dropdown_parameters=("foo,evidence_required", "0,2"),
+        value="evidence_required"
+    )
+    ca2 = CustomAttributeMock(
+        self.assessment,
+        attribute_type="Dropdown",
+        dropdown_parameters=("foo,evidence_required", "0,2"),
+        value="evidence_required"
+    )
+    # only one evidence provided yet
+    evidence = factories.EvidenceFactory(
+        title="Mandatory evidence",
+    )
+    factories.RelationshipFactory(
+        source=self.assessment,
+        destination=evidence,
+    )
+
     # the second evidence
-    evidence = factories.DocumentFactory(
+    evidence = factories.EvidenceFactory(
         title="Second mandatory evidence",
     )
-    factories.ObjectDocumentFactory(
-        documentable=self.assessment,
-        document=evidence,
+    factories.RelationshipFactory(
+        source=self.assessment,
+        destination=evidence,
     )
 
     preconditions_failed = self.assessment.preconditions_failed

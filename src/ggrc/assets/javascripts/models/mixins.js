@@ -1,10 +1,10 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
-(function (can) {
-  can.Construct('can.Model.Mixin', {
+(function (can, GGRC) {
+  can.Construct.extend('can.Model.Mixin', {
     extend: function (fullName, klass, proto) {
       var tempname;
       var mixinName;
@@ -39,12 +39,11 @@
       throw new Error('Mixins cannot be directly instantiated');
     },
     add_to: function (cls) {
-      var setupfns;
       if (this === can.Model.Mixin) {
         throw new Error('Must only add a subclass of Mixin to an object,' +
           ' not Mixin itself');
       }
-      setupfns = function (obj) {
+      function setupFns(obj) {
         return function (fn, key) {
           var blockedKeys = ['fullName', 'defaults', '_super', 'constructor'];
           var aspect = ~key.indexOf(':') ?
@@ -64,7 +63,7 @@
             //   Necessary for "attributes"/"serialize"/"convert"
             // Defaults will always be "after" for functions
             //  and "override" for non-function values
-            if (oldfn && typeof oldfn === 'function') {
+            if (can.isFunction(oldfn)) {
               switch (aspect) {
                 case 'before':
                   obj[key] = function () {
@@ -82,22 +81,43 @@
                   break;
               }
             } else if (aspect === 'extend') {
-              obj[key] = $.extend(obj[key], fn);
+              obj[key] = can.extend(obj[key], fn);
             } else {
               obj[key] = fn;
             }
           }
         };
-      };
+      }
+
       if (!~can.inArray(this.fullName, cls._mixins)) {
         cls._mixins = cls._mixins || [];
         cls._mixins.push(this.fullName);
-
-        can.each(this, setupfns(cls));
-        can.each(this.prototype, setupfns(cls.prototype));
+        Object.keys(this).forEach(function (key) {
+          setupFns(cls)(this[key], key);
+        }.bind(this));
+        can.each(this.prototype, setupFns(cls.prototype));
       }
     }
-  }, {
+  }, {});
+  can.Model.Mixin('requestorable', {
+    before_create: function () {
+      if (!this.requestor) {
+        this.attr('requestor', {
+          id: GGRC.current_user.id,
+          type: 'Person'
+        });
+      }
+    },
+    form_preload: function (new_object_form) {
+      if (new_object_form) {
+        if (!this.requestor) {
+          this.attr('requestor', {
+            id: GGRC.current_user.id,
+            type: 'Person'
+          });
+        }
+      }
+    }
   });
 
   can.Model.Mixin('ownable', {
@@ -142,6 +162,14 @@
     }
   });
 
+  can.Model.Mixin('accessControlList', {
+    'after:init': function () {
+      if (!this.access_control_list) {
+        this.attr('access_control_list', []);
+      }
+    }
+  });
+
   can.Model.Mixin('ca_update', {}, {
     after_save: function () {
       this.attr('isReadyForRender', true);
@@ -151,6 +179,48 @@
     }
   });
 
+  can.Model.Mixin('inScopeObjects', {}, {
+    'after:info_pane_preload': function () {
+      return this.updateScopeObject();
+    },
+    updateScopeObject: function () {
+      var objType = 'Audit';
+      var queryType = 'values';
+      var queryFields = ['id', 'type', 'title', 'context'];
+      var query = GGRC.Utils.QueryAPI
+        .buildParam(objType, {
+          current: 1,
+          pageSize: 1
+        }, {
+          type: this.attr('type'),
+          operation: 'relevant',
+          id: this.attr('id')
+        }, queryFields);
+      return GGRC.Utils.QueryAPI
+        .batchRequests(query)
+        .done(function (valueArr) {
+          var audit = valueArr[objType][queryType][0];
+          this.attr('scopeObject', audit);
+          this.attr('audit', audit);
+        }.bind(this));
+    }
+  });
+
+  function getAllowedMappings(allowed) {
+    return _.union(
+      GGRC.config.snapshotable_objects,
+      ['Issue'],
+      allowed || []
+    );
+  }
+
+  can.Model.Mixin('mapping-limit', {
+    getAllowedMappings: getAllowedMappings
+  }, {});
+
+  can.Model.Mixin('mapping-limit-issue', {
+    getAllowedMappings: _.partial(getAllowedMappings, ['Program', 'Project', 'TaskGroup'])
+  }, {});
   /**
    * A mixin to use for objects that can have their status automatically
    * changed when they are edited.
@@ -184,7 +254,7 @@
         STATUS_IN_PROGRESS, '" - are you sure about that?'
       ].join('');
 
-      var confirmation = $.Deferred();
+      var confirmation = can.Deferred();
 
       if (_.includes(IGNORED_STATES, this.status)) {
         confirmation.resolve();
@@ -221,102 +291,82 @@
     },
     'before:attr': function (key, val) {
       if (key === 'title' &&
-          arguments.length > 1 &&
-          this._transient) {
+        arguments.length > 1 &&
+        this._transient) {
         this.attr('_transient.title', null);
       }
     }
   });
-  // TODO: remove this mixin and all related logic from Front-end part
-  can.Model.Mixin('relatable', {
-  }, {
-    related_self: function () {
-      var model = CMS.Models[this.type];
-      return this._related(
-        model.relatable_options.relevantTypes,
-        model.relatable_options.threshold
-      );
-    },
-    /**
-     * Return objects of single type above threshold that are
-     * mapped to specified mapped objects.
-     *
-     * @param {Object} relevantTypes - object with specified first degree
-     *   binding (objectBinding), second degree binding (relatableBinding) and
-     *   weights that individual second degree bindings are carrying.
-     *
-     *   relevantTypes = {
-     *     @ObjectType: {
-     *       objectBinding: @first-degree-mapping,
-     *       relatableBinding: @second-degree-mapping,
-     *       weight: @weight-of-objects
-     *     },
-     *     Audit: {
-     *       objectBinding: 'audits',
-     *       relatableBinding: 'program_requests',
-     *       weight: 5
-     *     },
-     *     Regulation: {
-     *       objectBinding: 'related_regulations',
-     *       relatableBinding: 'related_requests',
-     *       weight: 3
-     *     }, ...
-     *   }
-     * @param {Number} threshold - minimum weight required to render related
-     *   object
-     *
-     */
-    _related: function (relevantTypes, threshold) {
-      var that = this;
-      var relatable = $.Deferred();
-      var connectionsCount = {};
-      var relatedObjectsDeferreds = [];
-      var mappedObjectDeferreds = _.map(relevantTypes, function (rtype) {
-        return this.get_binding(rtype.objectBinding).refresh_instances();
-      }.bind(this));
 
-      $.when.apply($, mappedObjectDeferreds).done(function () {
-        _.each(_.toArray(arguments), function (mappedObjectInstances) {
-          if (!mappedObjectInstances.length) {
-            return;
-          }
-          relatedObjectsDeferreds = relatedObjectsDeferreds.concat(
-            _.map(mappedObjectInstances, function (mappedObj) {
-              var insttype = mappedObj.instance.type;
-              var binding = relevantTypes[insttype].relatableBinding;
-              return mappedObj.instance.get_binding(
-                binding).refresh_instances();
-            }));
-        });
-        $.when.apply($, relatedObjectsDeferreds).done(function () {
-          _.each(_.toArray(arguments), function (relatedObjects) {
-            _.each(relatedObjects, function (relObj) {
-              var type = relObj.binding.instance.type;
-              var weight = relevantTypes[type].weight;
-              if (relObj.instance.id !== that.id) {
-                if (connectionsCount[relObj.instance.id] === undefined) {
-                  connectionsCount[relObj.instance.id] = {
-                    count: weight,
-                    object: relObj
-                  };
-                } else {
-                  connectionsCount[relObj.instance.id].count += weight;
-                }
-              }
-            });
-          });
-          relatable.resolve(
-            _.map(_.sortBy(_.filter(connectionsCount, function (item) {
-              if (item.count >= threshold) {
-                return item;
-              }
-            }), 'count').reverse(),
-              function (item) {
-                return item.object;
-              }));
-        });
-      });
-      return relatable;
+  /**
+   * A mixin to use for objects that can have a time limit imposed on them.
+   *
+   * @class CMS.Models.Mixins.timeboxed
+   */
+  can.Model.Mixin('timeboxed', {
+    'extend:attributes': {
+      start_date: 'date',
+      end_date: 'date'
+    },
+
+    // Override default CanJS's conversion/serialization of dates, because
+    // that takes the browser's local timezone into account, which we do not
+    // want with our UTC dates. Having plain UTC-formatted date strings is
+    // more suitable for the current structure of the app.
+    serialize: {
+      date: function (val, type) {
+        return val;
+      }
+    },
+
+    convert: {
+      date: function (val, oldVal, fn, type) {
+        return val;
+      }
+    }
+  }, {});
+  /**
+   * Specific Model mixin to check overdue status
+   */
+  can.Model.Mixin('isOverdue', {
+  }, {
+    'after:init': function () {
+      this.attr('isOverdue', this._isOverdue());
+      this.bind('change', function () {
+        this.attr('isOverdue', this._isOverdue());
+      }.bind(this));
+    },
+    _isOverdue: function () {
+      var doneState = this.attr('is_verification_needed') ?
+        'Verified' : 'Finished';
+      var endDate = moment(
+        this.attr('next_due_date') || this.attr('end_date'));
+      var today = moment().startOf('day');
+      var startOfDate = moment(endDate).startOf('day');
+      var isOverdue = endDate && today.diff(startOfDate, 'days') > 0;
+
+      if (this.attr('status') === doneState) {
+        return false;
+      }
+      return isOverdue;
     }
   });
-})(this.can);
+
+  /**
+   * A mixin to generate hash with refetch param.
+   */
+  can.Model.Mixin('refetchHash', {
+    getHashFragment: function () {
+      var widgetName = this.constructor.table_singular;
+      if (window.location.hash
+          .startsWith(['#', widgetName, '_widget'].join(''))) {
+        return;
+      }
+
+      return [widgetName,
+              '_widget/',
+              this.hash_fragment(),
+              '&refetch'].join('');
+    }
+  });
+})(window.can, window.GGRC);

@@ -1,19 +1,34 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
+from sqlalchemy import orm
+from sqlalchemy.orm import validates
+
 from ggrc import db
+from ggrc.access_control.roleable import Roleable
+from ggrc.models.comment import Commentable
 from ggrc.models.deferred import deferred
-from ggrc.models.mixins import BusinessObject, Timeboxed, CustomAttributable
+from ggrc.models.mixins import (BusinessObject, LastDeprecatedTimeboxed,
+                                CustomAttributable, TestPlanned)
+from ggrc.models import reflection
+from ggrc.fulltext.mixin import Indexed
+from .object_document import PublicDocumentable
 from .object_person import Personable
-from .object_owner import Ownable
 from .relationship import Relatable
 from .utils import validate_option
 
-from sqlalchemy.orm import validates
-from .track_object_state import HasObjectState, track_state_for_class
+from .track_object_state import HasObjectState
 
 
-class Directive(HasObjectState, Timeboxed, BusinessObject, db.Model):
+# NOTE: The PublicDocumentable mixin is not applied directly to the Directive
+# base class, but instead to all of its specialized subclasses. The reason for
+# this is the PublicDocumentable's declared attribute `documents` that builds a
+# dynamic DB relationship based on the class name, and thus the attribute needs
+# to be run in the context of each particular subclass.
+# (of course, if there is a nice way of overriding/customizing declared
+# attributes in subclasses, we might want to use that approach)
+class Directive(HasObjectState, LastDeprecatedTimeboxed,
+                Commentable, TestPlanned, BusinessObject, db.Model):
   __tablename__ = 'directives'
 
   version = deferred(db.Column(db.String), 'Directive')
@@ -49,7 +64,18 @@ class Directive(HasObjectState, Timeboxed, BusinessObject, db.Model):
       'polymorphic_on': meta_kind
   }
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
+      'audit_start_date',
+      'audit_frequency',
+      'audit_duration',
+      'controls',
+      'kind',
+      'organization',
+      'scope',
+      'version',
+  )
+
+  _fulltext_attrs = [
       'audit_start_date',
       'audit_frequency',
       'audit_duration',
@@ -60,6 +86,21 @@ class Directive(HasObjectState, Timeboxed, BusinessObject, db.Model):
       'version',
   ]
 
+  @classmethod
+  def indexed_query(cls):
+    return super(Directive, cls).indexed_query().options(
+        orm.Load(cls).joinedload('audit_frequency'),
+        orm.Load(cls).joinedload('audit_duration'),
+        orm.Load(cls).subqueryload('controls'),
+        orm.Load(cls).load_only(
+            'audit_start_date',
+            'kind',
+            'organization',
+            'scope',
+            'version',
+        ),
+    )
+
   _sanitize_html = [
       'organization',
       'scope',
@@ -68,7 +109,11 @@ class Directive(HasObjectState, Timeboxed, BusinessObject, db.Model):
 
   _include_links = []
 
-  _aliases = {'kind': "Kind/Type", }
+  _aliases = {
+      'kind': "Kind/Type",
+      "document_url": None,
+      "document_evidence": None,
+  }
 
   @validates('kind')
   def validate_kind(self, key, value):
@@ -86,8 +131,6 @@ class Directive(HasObjectState, Timeboxed, BusinessObject, db.Model):
 
   @classmethod
   def eager_query(cls):
-    from sqlalchemy import orm
-
     query = super(Directive, cls).eager_query()
     return cls.eager_inclusions(query, Directive._include_links).options(
         orm.joinedload('audit_frequency'),
@@ -102,8 +145,8 @@ class Directive(HasObjectState, Timeboxed, BusinessObject, db.Model):
 
 
 # FIXME: For subclasses, restrict kind
-class Policy(CustomAttributable, Relatable,
-             Personable, Ownable, Directive):
+class Policy(Roleable, CustomAttributable, Relatable,
+             Personable, PublicDocumentable, Directive, Indexed):
   __mapper_args__ = {
       'polymorphic_identity': 'Policy'
   }
@@ -115,15 +158,18 @@ class Policy(CustomAttributable, Relatable,
       "Product Policy", "Contract-Related Policy", "Company Controls Policy"
   ])
 
-  _aliases = {"url": "Policy URL"}
+  _aliases = {
+      "document_url": None,
+      "document_evidence": None,
+  }
 
   @validates('meta_kind')
   def validates_meta_kind(self, key, value):
     return 'Policy'
 
 
-class Regulation(CustomAttributable, Relatable,
-                 Personable, Ownable, Directive):
+class Regulation(Roleable, CustomAttributable, Relatable,
+                 Personable, PublicDocumentable, Directive, Indexed):
   __mapper_args__ = {
       'polymorphic_identity': 'Regulation'
   }
@@ -133,8 +179,9 @@ class Regulation(CustomAttributable, Relatable,
   VALID_KINDS = ("Regulation",)
 
   _aliases = {
-      "url": "Regulation URL",
       "kind": None,
+      "document_url": None,
+      "document_evidence": None,
   }
 
   @validates('meta_kind')
@@ -142,8 +189,8 @@ class Regulation(CustomAttributable, Relatable,
     return 'Regulation'
 
 
-class Standard(CustomAttributable, Relatable,
-               Personable, Ownable, Directive):
+class Standard(Roleable, CustomAttributable, Relatable,
+               Personable, PublicDocumentable, Directive, Indexed):
   __mapper_args__ = {
       'polymorphic_identity': 'Standard'
   }
@@ -153,8 +200,9 @@ class Standard(CustomAttributable, Relatable,
   VALID_KINDS = ("Standard",)
 
   _aliases = {
-      "url": "Standard URL",
       "kind": None,
+      "document_url": None,
+      "document_evidence": None,
   }
 
   @validates('meta_kind')
@@ -162,8 +210,8 @@ class Standard(CustomAttributable, Relatable,
     return 'Standard'
 
 
-class Contract(CustomAttributable, Relatable,
-               Personable, Ownable, Directive):
+class Contract(Roleable, CustomAttributable, Relatable,
+               Personable, PublicDocumentable, Directive, Indexed):
   __mapper_args__ = {
       'polymorphic_identity': 'Contract'
   }
@@ -173,15 +221,11 @@ class Contract(CustomAttributable, Relatable,
   VALID_KINDS = ("Contract",)
 
   _aliases = {
-      "url": "Contract URL",
       "kind": None,
+      "document_url": None,
+      "document_evidence": None,
   }
 
   @validates('meta_kind')
   def validates_meta_kind(self, key, value):
     return 'Contract'
-
-track_state_for_class(Policy)
-track_state_for_class(Regulation)
-track_state_for_class(Standard)
-track_state_for_class(Contract)

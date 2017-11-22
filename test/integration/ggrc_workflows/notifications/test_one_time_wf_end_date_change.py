@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from datetime import date
@@ -8,6 +8,7 @@ from mock import patch
 
 from ggrc.app import db
 from ggrc.models import Notification, Person
+from ggrc.models import all_models
 from ggrc.notifications import common
 from ggrc_workflows.models import Cycle, CycleTaskGroupObjectTask
 from integration.ggrc import TestCase
@@ -23,7 +24,7 @@ class TestOneTimeWfEndDateChange(TestCase):
   """
 
   def setUp(self):
-    TestCase.setUp(self)
+    super(TestOneTimeWfEndDateChange, self).setUp()
     self.api = Api()
     self.wf_generator = WorkflowsGenerator()
     self.object_generator = ObjectGenerator()
@@ -78,6 +79,7 @@ class TestOneTimeWfEndDateChange(TestCase):
     with freeze_time("2015-05-04 03:21:34"):  # one day before due date
       _, notif_data = common.get_daily_notifications()
       user = get_person(self.user.id)
+      self.assertIn(user.email, notif_data)
       self.assertIn("due_in", notif_data[user.email])
       self.assertEqual(len(notif_data[user.email]["due_in"]), 2)
 
@@ -162,7 +164,6 @@ class TestOneTimeWfEndDateChange(TestCase):
       _, notif_data = common.get_daily_notifications()
       self.assertIn(user.email, notif_data)
 
-      # yesterdays mail has not been sent
       self.assertIn("due_in", notif_data[user.email])
 
       self.assertIn("due_today", notif_data[user.email])
@@ -186,7 +187,7 @@ class TestOneTimeWfEndDateChange(TestCase):
       _, notif_data = common.get_daily_notifications()
       self.assertEqual(notif_data, {})
 
-      # one email to owner and one to assigne
+      # one email to owner and one to assignee
       self.assertEqual(mock_mail.call_count, 2)
 
     with freeze_time("2015-05-03 03:21:34"):
@@ -201,17 +202,18 @@ class TestOneTimeWfEndDateChange(TestCase):
       self.wf_generator.modify_object(
           task2, data={"end_date": date(2015, 5, 1)})
 
-    with freeze_time("2015-05-03 03:21:34"):  # one day befor due date
+    with freeze_time("2015-05-03 03:21:34"):  # two days after due date
+      user = get_person(self.user.id)
       _, notif_data = common.get_daily_notifications()
-      self.assertEqual(notif_data, {})
+      self.assertNotEqual(notif_data, {})
+      self.assertIn(user.email, notif_data)
 
-    with freeze_time("2015-05-04 03:21:34"):  # due date
-      _, notif_data = common.get_daily_notifications()
-      self.assertEqual(notif_data, {})
+      user_notifs = notif_data[user.email]
+      self.assertNotIn("due_today", user_notifs)
+      self.assertNotIn("due_in", user_notifs)
 
-    with freeze_time("2015-05-05 03:21:34"):  # due date
-      _, notif_data = common.get_daily_notifications()
-      self.assertEqual(notif_data, {})
+      self.assertIn("task_overdue", user_notifs)
+      self.assertEqual(len(user_notifs["task_overdue"]), 2)
 
   @patch("ggrc.notifications.common.send_email")
   def test_move_end_date_to_today(self, mock_mail):
@@ -245,11 +247,11 @@ class TestOneTimeWfEndDateChange(TestCase):
       self.wf_generator.modify_object(
           task2, data={"end_date": date(2015, 5, 4)})
 
-    with freeze_time("2015-05-03 03:21:34"):  # one day befor due date
+    with freeze_time("2015-05-03 03:21:34"):  # one day before due date
       user = get_person(self.user.id)
       _, notif_data = common.get_daily_notifications()
 
-      self.assertNotEquals(notif_data, {})
+      self.assertNotEqual(notif_data, {})
       self.assertIn(user.email, notif_data)
       self.assertIn("due_today", notif_data[user.email])
       self.assertIn("due_in", notif_data[user.email])
@@ -257,7 +259,7 @@ class TestOneTimeWfEndDateChange(TestCase):
 
       common.send_daily_digest_notifications()
 
-    with freeze_time("2015-05-04 03:21:34"):  # due date
+    with freeze_time("2015-05-04 03:21:34"):  # due date (of task2)
       user = get_person(self.user.id)
       _, notif_data = common.get_daily_notifications()
       self.assertIn(user.email, notif_data)
@@ -265,9 +267,19 @@ class TestOneTimeWfEndDateChange(TestCase):
       self.assertNotIn("due_in", notif_data[user.email])
       common.send_daily_digest_notifications()
 
-    with freeze_time("2015-05-05 03:21:34"):  # due date
+    # check that overdue notifications are sent even on days after the day a
+    # task has become due, unlike the "due_today" and "due_in" notifications
+    with freeze_time("2015-05-05 03:21:34"):  # 1+ days after due date(s)
       _, notif_data = common.get_daily_notifications()
-      self.assertEqual(notif_data, {})
+      self.assertNotEqual(notif_data, {})
+      self.assertIn(user.email, notif_data)
+
+      user_notifs = notif_data[user.email]
+      self.assertNotIn("due_today", user_notifs)
+      self.assertNotIn("due_in", user_notifs)
+
+      self.assertIn("task_overdue", user_notifs)
+      self.assertEqual(len(user_notifs["task_overdue"]), 2)
 
   def create_test_cases(self):
     def person_dict(person_id):
@@ -276,7 +288,10 @@ class TestOneTimeWfEndDateChange(TestCase):
           "id": person_id,
           "type": "Person"
       }
-
+    role_id = all_models.AccessControlRole.query.filter(
+        all_models.AccessControlRole.name == "Task Assignees",
+        all_models.AccessControlRole.object_type == "TaskGroupTask",
+    ).one().id
     self.one_time_workflow_1 = {
         "title": "one time test workflow",
         "notify_on_change": True,
@@ -288,15 +303,21 @@ class TestOneTimeWfEndDateChange(TestCase):
             "task_group_tasks": [{
                 "title": "task 1",
                 "description": "some task",
-                "contact": person_dict(self.user.id),
                 "start_date": date(2015, 5, 1),  # friday
                 "end_date": date(2015, 5, 5),
+                "access_control_list": [{
+                    "person": {"id": self.user.id, },
+                    "ac_role_id": role_id,
+                }],
             }, {
                 "title": "task 2",
                 "description": "some task 2",
-                "contact": person_dict(self.user.id),
                 "start_date": date(2015, 5, 1),  # friday
                 "end_date": date(2015, 5, 5),
+                "access_control_list": [{
+                    "person": {"id": self.user.id, },
+                    "ac_role_id": role_id,
+                }],
             }],
             "task_group_objects": self.random_objects
         }]

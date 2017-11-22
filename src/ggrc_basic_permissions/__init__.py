@@ -1,7 +1,7 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
-"""Initialize RBAC"""
+"""RBAC module"""
 
 import datetime
 import itertools
@@ -22,11 +22,10 @@ from ggrc.login import get_current_user
 from ggrc.models import all_models
 from ggrc.models.audit import Audit
 from ggrc.models.program import Program
-from ggrc.models.object_owner import ObjectOwner
 from ggrc.rbac import permissions as rbac_permissions
 from ggrc.rbac.permissions_provider import DefaultUserPermissions
 from ggrc.services.common import _get_cache_manager
-from ggrc.services.common import Resource
+from ggrc.services import signals
 from ggrc.services.registry import service
 from ggrc.utils import benchmark
 from ggrc_basic_permissions import basic_roles
@@ -102,7 +101,12 @@ def objects_via_assignable_query(user_id, context_not_role=True):
             (rel2.destination_type == rel1.destination_type,
              rel2.source_type)
         ], else_=rel2.destination_type).label('type'),
-        rel1.context_id if context_not_role else literal('R')
+        # related_assignables are available for Read, except for Documents
+        # which are available for modification
+        case([
+            (rel2.destination_type == 'Document',
+             rel2.context_id if context_not_role else literal('RUD'))
+        ], else_=(rel2.context_id if context_not_role else literal('R')))
     ).select_from(rel1)
 
   # First we fetch objects where a user is mapped as an assignee
@@ -115,7 +119,7 @@ def objects_via_assignable_query(user_id, context_not_role=True):
           (rel1.destination_type == "Person",
            rel1.source_type)
       ], else_=rel1.destination_type),
-      rel1.context_id if context_not_role else literal('RUD')))
+      rel1.context_id if context_not_role else literal('RU')))
 
   # The user should also have access to objects mapped to the assigned_objects
   # We accomplish this by filtering out relationships where the user is
@@ -257,7 +261,7 @@ class CompletePermissionsProvider(object):
   def __init__(self, _):
     pass
 
-  def permissions_for(self, user):
+  def permissions_for(self, _):
     """Load user permissions and make sure they get loaded into session"""
     ret = UserPermissions()
     # force the permissions to be loaded into session, otherwise templates
@@ -283,6 +287,7 @@ class BasicUserPermissions(DefaultUserPermissions):
 
 
 class UserPermissions(DefaultUserPermissions):
+  """User permissions cached in the global session object"""
 
   @property
   def _request_permissions(self):
@@ -304,6 +309,7 @@ class UserPermissions(DefaultUserPermissions):
     return user.email if hasattr(user, 'email') else 'ANONYMOUS'
 
   def load_permissions(self):
+    """Load permissions for the currently logged in user"""
     user = get_current_user()
     email = self.get_email_for(user)
     self._request_permissions = {}
@@ -551,29 +557,6 @@ def load_implied_roles(permissions, source_contexts_to_rolenames,
           implied_role.permissions, implied_context_id, permissions)
 
 
-def load_object_owners(user, permissions):
-  """Load object owners permissions
-
-  Args:
-      user (Person): Person object
-      permissions (dict): dict where the permissions will be stored
-  Returns:
-      None
-  """
-  with benchmark("load_object_owners > get owners"):
-    object_owners = db.session.query(
-        ObjectOwner.ownable_type, ObjectOwner.ownable_id
-    ).filter(ObjectOwner.person_id == user.id).all()
-  with benchmark("load_object_owners > update permissions"):
-    actions = ("read", "create", "update", "delete", "view_object_page")
-    for ownable_type, ownable_id in object_owners:
-      for action in actions:
-        permissions.setdefault(action, {})\
-            .setdefault(ownable_type, {})\
-            .setdefault('resources', list())\
-            .append(ownable_id)
-
-
 def context_relationship_query(contexts):
   """Load a list of objects related to the given contexts
 
@@ -621,16 +604,10 @@ def load_context_relationships(permissions):
   read_contexts = set(
       permissions.get('read', {}).
       get('Program', {}).
-      get('contexts', []) +
-      permissions.get('read', {}).
-      get('Audit', {}).
       get('contexts', []))
   write_contexts = set(
       permissions.get('update', {}).
       get('Program', {}).
-      get('contexts', []) +
-      permissions.get('update', {}).
-      get('Audit', {}).
       get('contexts', []))
   read_only_contexts = read_contexts - write_contexts
 
@@ -646,7 +623,7 @@ def load_context_relationships(permissions):
 
   write_objects = context_relationship_query(write_contexts)
   for res in write_objects:
-    id_, type_, role_name = res
+    id_, type_, _ = res
     actions = ["read", "view_object_page", "create", "update", "delete"]
     for action in actions:
       permissions.setdefault(action, {})\
@@ -666,8 +643,10 @@ def load_assignee_relationships(user, permissions):
   """
   for id_, type_, role_name in objects_via_assignable_query(user.id, False):
     actions = ["read", "view_object_page"]
-    if role_name == "RUD":
-      actions += ["update", "delete"]
+    if "U" in role_name:
+      actions.append("update")
+    if "D" in role_name:
+      actions.append("delete")
     for action in actions:
       permissions.setdefault(action, {})\
           .setdefault(type_, {})\
@@ -690,6 +669,26 @@ def load_personal_context(user, permissions):
       .setdefault('__GGRC_ALL__', dict())\
       .setdefault('contexts', list())\
       .append(personal_context.id)
+
+
+def load_access_control_list(user, permissions):
+  """Load permissions from access_control_list"""
+  acl = all_models.AccessControlList
+  acr = all_models.AccessControlRole
+  access_control_list = db.session.query(
+      acl.object_type, acl.object_id, acr.read, acr.update, acr.delete
+  ).filter(and_(all_models.AccessControlList.person_id == user.id,
+                all_models.AccessControlList.ac_role_id == acr.id)).all()
+
+  for object_type, object_id, read, update, delete in access_control_list:
+    actions = (("read", read), ("update", update), ("delete", delete))
+    for action, allowed in actions:
+      if not allowed:
+        continue
+      permissions.setdefault(action, {})\
+          .setdefault(object_type, {})\
+          .setdefault('resources', list())\
+          .append(object_id)
 
 
 def load_backlog_workflows(permissions):
@@ -748,7 +747,7 @@ def load_permissions_for(user):
                                       [conditions][context][context_conditions]
 
   'action' is one of 'create', 'read', 'update', 'delete'.
-  'resource_type' is the name of a valid gGRC resource type.
+  'resource_type' is the name of a valid GGRC resource type.
   'contexts' is a list of context_id where the action is allowed.
   'conditions' is a dictionary of 'context_conditions' indexed by 'context'
     where 'context' is a context_id.
@@ -782,9 +781,6 @@ def load_permissions_for(user):
     load_implied_roles(permissions, source_contexts_to_rolenames,
                        all_context_implications)
 
-  with benchmark("load_permissions > load object owners"):
-    load_object_owners(user, permissions)
-
   with benchmark("load_permissions > load context relationships"):
     load_context_relationships(permissions)
 
@@ -793,6 +789,9 @@ def load_permissions_for(user):
 
   with benchmark("load_permissions > load personal context"):
     load_personal_context(user, permissions)
+
+  with benchmark("load_permissions > load access control list"):
+    load_access_control_list(user, permissions)
 
   with benchmark("load_permissions > load backlog workflows"):
     load_backlog_workflows(permissions)
@@ -823,13 +822,10 @@ def _get_or_create_personal_context(user):
       context=1,
       name='Personal Context for {0}'.format(user.id),
       description='')
-  personal_context.modified_by = get_current_user()
-  db.session.add(personal_context)
-  db.session.flush()
   return personal_context
 
 
-@Resource.model_posted.connect_via(Program)
+@signals.Restful.model_posted.connect_via(Program)
 def handle_program_post(sender, obj=None, src=None, service=None):
   db.session.flush()
   # get the personal context for this logged in user
@@ -913,15 +909,6 @@ def create_audit_context(audit):
       modified_by=get_current_user(),
   ))
 
-  # Create the audit -> program implication
-  db.session.add(ContextImplication(
-      source_context=context,
-      context=audit.context,
-      source_context_scope='Audit',
-      context_scope='Program',
-      modified_by=get_current_user(),
-  ))
-
   db.session.add(audit)
 
   # Create the role implication for Auditor from Audit for default context
@@ -938,7 +925,7 @@ def create_audit_context(audit):
   audit.context = context
 
 
-@Resource.collection_posted.connect_via(Audit)
+@signals.Restful.collection_posted.connect_via(Audit)
 def handle_audit_post(sender, objects=None, sources=None):
   for obj, src in itertools.izip(objects, sources):
     if not src.get("operation", None):
@@ -946,7 +933,7 @@ def handle_audit_post(sender, objects=None, sources=None):
       create_audit_context(obj)
 
 
-@Resource.model_deleted.connect
+@signals.Restful.model_deleted.connect
 def handle_resource_deleted(sender, obj=None, service=None):
   if obj.context \
      and obj.context.related_object_id \
@@ -965,20 +952,6 @@ def handle_resource_deleted(sender, obj=None, service=None):
     #   cascading to delete those, just leave the `Context` object in place.
     #   It and its objects will be visible *only* to Admin users.
     # db.session.delete(obj.context)
-
-
-# Removed because this is now handled purely client-side, but kept
-# here as a reference for the next one.
-# @BaseObjectView.extension_contributions.connect_via(Program)
-def contribute_to_program_view(sender, obj=None, context=None):
-  if obj.context_id is not None and \
-     rbac_permissions.is_allowed_read('Role', None, 1) and \
-     rbac_permissions.is_allowed_read('UserRole', None, obj.context_id) and \
-     rbac_permissions.is_allowed_create('UserRole', None, obj.context_id) and \
-     rbac_permissions.is_allowed_update('UserRole', None, obj.context_id) and \
-     rbac_permissions.is_allowed_delete('UserRole', None, obj.context_id):
-    return 'permissions/programs/_role_assignments.haml'
-  return None
 
 
 @app.context_processor

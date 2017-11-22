@@ -1,11 +1,27 @@
 {{!
-    Copyright (C) 2016 Google Inc., authors, and contributors
+    Copyright (C) 2017 Google Inc., authors, and contributors
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
-<spinner toggle="isLoading" extra-css-class="{{spinnerCss}}" class="spinner-wrapper {{#isLoading}}active{{/isLoading}}"></spinner>
-{{#each items}}
-  <object-list-item selected-item="selectedItem" index="{{@index}}" can-click="select">
-    <content></content>
-  </object-list-item>
-{{/each}}
-
+{{#if showSpinner}}
+    <spinner {toggle}="isLoading" {extra-css-class}="spinnerCss" class="spinner-wrapper active"></spinner>
+{{else}}
+  {{#if items.length}}
+      {{#if showMore}}
+        <show-more class="list-more" items="items" limit="3">
+          <div class="object-list__item {{#isSelected}}object-list__item-selected{{/isSelected}}" ($click)="modifySelection">
+            <content>No item component or template is provided</content>
+          </div>
+        </show-more>
+      {{else}}
+        {{#items}}
+          <div class="object-list__item {{#isSelected}}object-list__item-selected{{/isSelected}}" ($click)="modifySelection">
+              <content>No item component or template is provided</content>
+          </div>
+        {{/items}}
+      {{/if}}
+  {{else}}
+      <div class="object-list__item object-list__item-empty">
+        {{emptyMessage}}
+      </div>
+  {{/if}}
+{{/if}}

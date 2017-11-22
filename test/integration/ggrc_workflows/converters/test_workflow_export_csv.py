@@ -1,13 +1,14 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Tests for workflow object exports."""
 
 from os.path import abspath, dirname, join
-from flask.json import dumps
 
-from ggrc.app import app
-from ggrc_workflows.models import Workflow
+from flask.json import dumps
+from ggrc import db
+from ggrc.app import app  # NOQA  # pylint: disable=unused-import
+from ggrc_workflows.models import Workflow, TaskGroup
 from integration.ggrc import TestCase
 from integration.ggrc_workflows.generator import WorkflowsGenerator
 
@@ -23,13 +24,16 @@ class TestExportEmptyTemplate(TestCase):
     self.client.get("/login")
     self.headers = {
         'Content-Type': 'application/json',
-        "X-Requested-By": "gGRC",
+        "X-Requested-By": "GGRC",
         "X-export-view": "blocks",
     }
 
   def test_single_object_export(self):
     """Test empty exports for workflow only."""
-    data = [{"object_name": "Workflow", "fields": "all"}]
+    data = {
+        "export_to": "csv",
+        "objects": [{"object_name": "Workflow", "fields": "all"}]
+    }
 
     response = self.client.post("/_service/export_csv",
                                 data=dumps(data), headers=self.headers)
@@ -46,16 +50,19 @@ class TestExportEmptyTemplate(TestCase):
         {"object_name": "CycleTaskGroup", "fields": "all"},
         {"object_name": "CycleTaskGroupObjectTask", "fields": "all"},
     ]
-
+    request_body = {
+        "export_to": "csv",
+        "objects": data
+    }
     response = self.client.post("/_service/export_csv",
-                                data=dumps(data), headers=self.headers)
+                                data=dumps(request_body), headers=self.headers)
     self.assertEqual(response.status_code, 200)
     self.assertIn("Workflow,", response.data)
     self.assertIn("Task Group,", response.data)
     self.assertIn("Task,", response.data)
     self.assertIn("Cycle,", response.data)
     self.assertIn("Cycle Task Group,", response.data)
-    self.assertIn("Cycle Task Group Object Task,", response.data)
+    self.assertIn("Cycle Task,", response.data)
 
 
 class TestExportMultipleObjects(TestCase):
@@ -64,22 +71,7 @@ class TestExportMultipleObjects(TestCase):
   https://docs.google.com/spreadsheets/d/1Jg8jum2eQfvR3kZNVYbVKizWIGZXvfqv3yQpo2rIiD8/edit#gid=2035742544
   """
 
-  @classmethod
-  def setUpClass(cls):  # pylint: disable=C0103
-    TestCase.clear_data()
-    cls.tc = app.test_client()
-    cls.tc.get("/login")
-    cls.import_file("workflow_big_sheet.csv")
-
-  @classmethod
-  def import_file(cls, filename, dry_run=False):
-    data = {"file": (open(join(CSV_DIR, filename)), filename)}
-    headers = {
-        "X-test-only": "true" if dry_run else "false",
-        "X-requested-by": "gGRC",
-    }
-    cls.tc.post("/_service/import_csv",
-                data=data, headers=headers)
+  CSV_DIR = join(abspath(dirname(__file__)), "test_csvs/")
 
   def activate(self):
     """ activate workflows just once after the class has been initialized
@@ -93,22 +85,26 @@ class TestExportMultipleObjects(TestCase):
     if wf1:
       gen.generate_cycle(wf1)
 
-    workflows = Workflow.query.filter_by(status="Draft").all()
-    for wf in workflows:
-      gen.activate_workflow(wf)
+    # Only workflows with at least one task group could be activated
+    workflows = db.session.query(Workflow).join(TaskGroup).filter(
+        Workflow.id == TaskGroup.workflow_id,
+        Workflow.status == 'Draft').all()
+    for workflow in workflows:
+      gen.activate_workflow(workflow)
 
   def setUp(self):
+    self.clear_data()
+    self.import_file("workflow_big_sheet.csv")
     self.client.get("/login")
     self.headers = {
         'Content-Type': 'application/json',
-        "X-Requested-By": "gGRC",
+        "X-Requested-By": "GGRC",
         "X-export-view": "blocks",
     }
     self.activate()
 
   def export_csv(self, data):
-    response = self.client.post("/_service/export_csv", data=dumps(data),
-                                headers=self.headers)
+    response = super(TestExportMultipleObjects, self).export_csv(data)
     self.assert200(response)
     return response
 
@@ -301,15 +297,15 @@ class TestExportMultipleObjects(TestCase):
     cycle = wf.cycles[0]
     cycle_tasks = []
     for cycle_task in cycle.cycle_task_group_object_tasks:
-        is_related = False
-        for related_object in cycle_task.related_objects:
-            if related_object.slug == "p1":
-                is_related = True
-        if is_related:
-            cycle_tasks.append(cycle_task)
+      is_related = False
+      for related_object in cycle_task.related_objects:
+        if related_object.slug == "p1":
+          is_related = True
+      if is_related:
+        cycle_tasks.append(cycle_task)
 
     cycle_task_groups = list({cycle_task.cycle_task_group
-                             for cycle_task in cycle_tasks})
+                              for cycle_task in cycle_tasks})
 
     self.assertEqual(1, response.count("wf-"))
 

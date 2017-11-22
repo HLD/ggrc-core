@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 SHELL := /bin/bash
@@ -10,57 +10,43 @@ PREFIX := $(shell pwd)
 DEV_PREFIX ?= $(PREFIX)
 DEV_PREFIX := $(shell cd $(DEV_PREFIX); pwd)
 
-# APPENGINE_ZIP_NAME and APPENGINE_ZIP_HREF are independent but should be
+# GCLOUD_ZIP_NAME and GCLOUD_ZIP_HREF are independent but should be
 # updated together to ensure update is forced during `vagrant provision`
-APPENGINE_ZIP_HREF=https://commondatastorage.googleapis.com/appengine-sdks/deprecated/193/google_appengine_1.9.3.zip
-# For App Engine SDK V.1.8.X, use this location:
-# APPENGINE_ZIP_HREF=http://googleappengine.googlecode.com/files/$(APPENGINE_ZIP_NAME)
-APPENGINE_ZIP_NAME=google_appengine_1.9.3.zip
-APPENGINE_ZIP_PATH=$(DEV_PREFIX)/opt/$(APPENGINE_ZIP_NAME)
-APPENGINE_SDK_PATH=$(DEV_PREFIX)/opt/google_appengine
-APPENGINE_SQLITE_PATCH_PATH=$(PREFIX)/extras/google_appengine__enable_sqlite3.diff
-APPENGINE_NOAUTH_PATCH_PATH=$(PREFIX)/extras/google_appengine__force_noauth_local_webserver.diff
+GCLOUD_ZIP_HREF=https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-154.0.1-linux-x86_64.tar.gz
+GCLOUD_ZIP_NAME=google-cloud-sdk-154.0.1-linux-x86_64.tar.gz
+GCLOUD_ZIP_PATH=$(DEV_PREFIX)/opt/$(GCLOUD_ZIP_NAME)
+GCLOUD_SDK_PATH=$(DEV_PREFIX)/opt/google-cloud-sdk
 
-APPENGINE_PACKAGES_ZIP=$(PREFIX)/src/packages.zip
-APPENGINE_PACKAGES_TEMP_ZIP=$(DEV_PREFIX)/opt/packages.zip
 APPENGINE_PACKAGES_DIR=$(DEV_PREFIX)/opt/gae_packages
 
 APPENGINE_ENV_DIR=$(DEV_PREFIX)/opt/gae_virtualenv
 APPENGINE_REQUIREMENTS_TXT=$(PREFIX)/src/requirements.txt
 
-FLASH_PATH=$(PREFIX)/src/ggrc/static/flash
 STATIC_PATH=$(PREFIX)/src/ggrc/static
-BOWER_PATH=$(PREFIX)/bower_components
-DEV_BOWER_PATH=$(DEV_PREFIX)/bower_components
-BOWER_BIN_PATH=/vagrant-dev/node_modules/bower/bin/bower
 NODE_MODULES_PATH=$(DEV_PREFIX)/node_modules
 GOLANG_PATH=/vagrant-dev/golang
 GOLANG_BIN=$(GOLANG_PATH)/go/bin/go
 GOLANG_PACKAGES=$(GOLANG_PATH)/bin
 
-$(APPENGINE_SDK_PATH) : $(APPENGINE_ZIP_PATH)
-	@echo $( dirname $(APPENGINE_ZIP_PATH) )
-	cd `dirname $(APPENGINE_SDK_PATH)`; \
-		unzip -o $(APPENGINE_ZIP_PATH)
-	touch $(APPENGINE_SDK_PATH)
-	cd $(APPENGINE_SDK_PATH); \
-		patch -p1 < $(APPENGINE_SQLITE_PATCH_PATH); \
-		patch -p1 < $(APPENGINE_NOAUTH_PATCH_PATH)
+$(GCLOUD_SDK_PATH) : $(GCLOUD_ZIP_PATH)
+	cd `dirname $(GCLOUD_SDK_PATH)`; \
+		tar -xzf $(GCLOUD_ZIP_PATH)
 
-appengine_sdk : $(APPENGINE_SDK_PATH)
+gcloud_sdk : $(GCLOUD_SDK_PATH)
 
-clean_appengine_sdk :
-	rm -rf -- "$(APPENGINE_SDK_PATH)"
-	rm -f "$(APPENGINE_ZIP_PATH)"
+clean_gcloud_sdk :
+	rm -rf -- "$(GCLOUD_SDK_PATH)"
+	rm -f "$(GCLOUD_ZIP_PATH)"
 
-$(APPENGINE_ZIP_PATH) :
-	mkdir -p `dirname $(APPENGINE_ZIP_PATH)`
-	wget "$(APPENGINE_ZIP_HREF)" -O "$(APPENGINE_ZIP_PATH).tmp"
-	mv "$(APPENGINE_ZIP_PATH).tmp" "$(APPENGINE_ZIP_PATH)"
+$(GCLOUD_ZIP_PATH) :
+	mkdir -p `dirname $(GCLOUD_ZIP_PATH)`
+	wget "$(GCLOUD_ZIP_HREF)" -O "$(GCLOUD_ZIP_PATH).tmp"
+	mv "$(GCLOUD_ZIP_PATH).tmp" "$(GCLOUD_ZIP_PATH)"
+
+appengine_sdk : $(GCLOUD_SDK_PATH)
+	yes | "$(GCLOUD_SDK_PATH)/bin/gcloud" components install app-engine-python
 
 clean_appengine_packages :
-	rm -f -- "$(APPENGINE_PACKAGES_ZIP)"
-	rm -f -- "$(APPENGINE_PACKAGES_TEMP_ZIP)"
 	rm -rf -- "$(APPENGINE_PACKAGES_DIR)"
 	rm -rf -- "$(APPENGINE_ENV_DIR)"
 
@@ -78,24 +64,15 @@ $(APPENGINE_PACKAGES_DIR) : $(APPENGINE_ENV_DIR)
 		pip install --no-deps -r "$(APPENGINE_REQUIREMENTS_TXT)" --target "$(APPENGINE_PACKAGES_DIR)"
 	cd "$(APPENGINE_PACKAGES_DIR)/webassets"; \
 		patch -p3 < "${PREFIX}/extras/webassets__fix_builtin_filter_loading.diff"
+	cd "$(APPENGINE_PACKAGES_DIR)"; \
+		find . -name "*.pyc" -delete; \
+		find . -name "*.egg-info" | xargs rm -rf
 
 appengine_packages : $(APPENGINE_PACKAGES_DIR)
 
-$(APPENGINE_PACKAGES_TEMP_ZIP) : $(APPENGINE_PACKAGES_DIR)
-	cd "$(APPENGINE_PACKAGES_DIR)"; \
-		find . -name "*.pyc" -delete; \
-		find . -name "*.egg-info" | xargs rm -rf; \
-		zip -9rv "$(APPENGINE_PACKAGES_TEMP_ZIP)" .; \
-		touch "$(APPENGINE_PACKAGES_TEMP_ZIP)"
+appengine : appengine_sdk appengine_packages
 
-$(APPENGINE_PACKAGES_ZIP) : $(APPENGINE_PACKAGES_TEMP_ZIP)
-	cp "$(APPENGINE_PACKAGES_TEMP_ZIP)" "$(APPENGINE_PACKAGES_ZIP)"
-
-appengine_packages_zip : $(APPENGINE_PACKAGES_ZIP)
-
-appengine : appengine_sdk appengine_packages appengine_packages_zip
-
-clean_appengine : clean_appengine_sdk clean_appengine_packages
+clean_appengine : clean_gcloud_sdk clean_appengine_packages
 
 
 ## Local environment
@@ -150,54 +127,23 @@ misspell :
 		! -path "./test/*.out"\
 		! -path "./test/*.xml"\
 		! -path "./src/ggrc/assets/stylesheets/dashboard.css"\
+		! -path "./src/packages/*"\
 		| xargs $(GOLANG_PACKAGES)/misspell -error -locale US
 
 ## Deployment!
 
-src/ggrc/assets/stylesheets/dashboard.css : src/ggrc/assets/stylesheets/*.scss
-	bin/build_css -p
-
-src/ggrc/assets/assets.manifest : src/ggrc/assets/stylesheets/dashboard.css src/ggrc/assets
+src/ggrc/assets/assets.manifest : src/ggrc/assets
 	source "bin/init_env"; \
 		GGRC_SETTINGS_MODULE="$(SETTINGS_MODULE)" bin/build_assets
 
 src/app.yaml : src/app.yaml.dist
-	bin/build_app_yaml src/app.yaml.dist src/app.yaml \
-		APPENGINE_INSTANCE="$(APPENGINE_INSTANCE)" \
-		SETTINGS_MODULE="$(SETTINGS_MODULE)" \
-		DATABASE_URI="$(DATABASE_URI)" \
-		SECRET_KEY="$(SECRET_KEY)" \
-		GOOGLE_ANALYTICS_ID="${GOOGLE_ANALYTICS_ID}" \
-		GOOGLE_ANALYTICS_DOMAIN="${GOOGLE_ANALYTICS_DOMAIN}" \
-		GAPI_KEY="$(GAPI_KEY)" \
-		GAPI_CLIENT_ID="$(GAPI_CLIENT_ID)" \
-		GAPI_CLIENT_SECRET="$(GAPI_CLIENT_SECRET)" \
-		GAPI_ADMIN_GROUP="$(GAPI_ADMIN_GROUP)" \
-		BOOTSTRAP_ADMIN_USERS="$(BOOTSTRAP_ADMIN_USERS)" \
-		RISK_ASSESSMENT_URL="$(RISK_ASSESSMENT_URL)"\
-		APPENGINE_EMAIL="$(APPENGINE_EMAIL)" \
-		CUSTOM_URL_ROOT="$(CUSTOM_URL_ROOT)" \
-		ABOUT_URL="$(ABOUT_URL)" \
-		ABOUT_TEXT="$(ABOUT_TEXT)" \
-		INSTANCE_CLASS="$(INSTANCE_CLASS)" \
-		MAX_INSTANCES="$(MAX_INSTANCES)" \
-		AUTHORIZED_DOMAINS="$(AUTHORIZED_DOMAINS)"
+	bin/build_app_yaml src/app.yaml.dist src/app.yaml --from-env
 
-bower_components : bower.json
-	mkdir -p $(FLASH_PATH)
-	mkdir -p $(DEV_BOWER_PATH)
-	ln -sf $(DEV_BOWER_PATH) $(BOWER_PATH)
-	$(BOWER_BIN_PATH) install --allow-root
-	cp -r $(NODE_MODULES_PATH)/font-awesome/fonts $(STATIC_PATH)
-
-clean_bower_components :
-	rm -rf $(BOWER_PATH) $(FLASH_PATH) $(STATIC_PATH)/fonts
-
-deploy : appengine_packages_zip bower_components src/ggrc/assets/assets.manifest src/app.yaml
+deploy : appengine_packages src/ggrc/assets/assets.manifest src/app.yaml
 
 clean_deploy :
 	rm -f src/ggrc/assets/stylesheets/dashboard.css
 	rm -f src/ggrc/static/dashboard-*.* src/ggrc/assets/assets.manifest
 	rm -f src/app.yaml
 
-clean : clean_deploy clean_bower_components
+clean : clean_deploy

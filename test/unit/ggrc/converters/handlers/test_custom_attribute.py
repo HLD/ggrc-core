@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Tests for the CustomAttributeColumHandler class"""
@@ -9,6 +9,7 @@ import unittest
 
 from mock import MagicMock, patch
 
+from ggrc import app  # noqa  # pylint: disable=unused-import
 from ggrc.converters.handlers.custom_attribute import (
     CustomAttributeColumHandler
 )

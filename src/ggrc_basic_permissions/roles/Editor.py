@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 scope = "System"
@@ -7,7 +7,9 @@ description = """
   """
 permissions = {
     "read": [
+        "AccessControlList",
         "Audit",
+        "Snapshot",
         "Categorization",
         "Category",
         "Comment",
@@ -31,8 +33,6 @@ permissions = {
         "Help",
         "Market",
         "Objective",
-        "ObjectDocument",
-        "ObjectOwner",
         "ObjectPerson",
         "Option",
         "OrgGroup",
@@ -50,7 +50,6 @@ permissions = {
         "Program",
         "Revision",
         "Role",
-        "Request",
         "Context",
         "UserRole",
         {
@@ -64,6 +63,7 @@ permissions = {
     ],
     "create": [
         "Audit",
+        "Snapshot",
         "Workflow",
         "Categorization",
         "Category",
@@ -88,7 +88,6 @@ permissions = {
         "Help",
         "Market",
         "Objective",
-        "ObjectDocument",
         "ObjectPerson",
         "Option",
         "OrgGroup",
@@ -102,11 +101,9 @@ permissions = {
         "SystemOrProcess",
         "System",
         "Process",
-        "ObjectOwner",
         "Program",
         "Role",
         "UserRole",
-        "Request",
         "Context",
         {
             "type": "BackgroundTask",
@@ -121,7 +118,15 @@ permissions = {
         "__GGRC_ALL__"
     ],
     "update": [
-        "Audit",
+        {
+            "type": "Audit",
+            "terms": {
+                "property_name": "archived",
+                "prevent_if": True
+            },
+            "condition": "has_not_changed"
+        },
+        "Snapshot",
         "Workflow",
         "Categorization",
         "Category",
@@ -145,7 +150,6 @@ permissions = {
         "Help",
         "Market",
         "Objective",
-        "ObjectDocument",
         "ObjectPerson",
         "Person",
         "Option",
@@ -160,11 +164,9 @@ permissions = {
         "SystemOrProcess",
         "System",
         "Process",
-        "ObjectOwner",
         "Program",
         "Role",
         "UserRole",
-        "Request",
         "Context",
         {
             "type": "BackgroundTask",
@@ -176,7 +178,14 @@ permissions = {
         },
     ],
     "delete": [
-        "Audit",
+        {
+            "type": "Audit",
+            "terms": {
+                "property_name": "archived",
+                "prevent_if": False
+            },
+            "condition": "has_changed"
+        },
         "Workflow",
         "Categorization",
         "Category",
@@ -200,7 +209,6 @@ permissions = {
         "Help",
         "Market",
         "Objective",
-        "ObjectDocument",
         "ObjectPerson",
         "Option",
         "OrgGroup",
@@ -214,11 +222,9 @@ permissions = {
         "SystemOrProcess",
         "System",
         "Process",
-        "ObjectOwner",
         "Program",
         "Role",
         "UserRole",
-        "Request",
         "Context",
         {
             "type": "BackgroundTask",

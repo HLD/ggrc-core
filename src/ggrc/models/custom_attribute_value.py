@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Custom attribute value model"""
@@ -11,28 +11,37 @@ from sqlalchemy import or_
 from sqlalchemy import orm
 from sqlalchemy.orm import foreign
 
+from ggrc import builder
 from ggrc import db
-from ggrc.models.computed_property import computed_property
 from ggrc.models.mixins import Base
-from ggrc.models.reflection import PublishOnly
 from ggrc.models.revision import Revision
+from ggrc.models import reflection
 from ggrc import utils
+from ggrc.fulltext.mixin import Indexed
+from ggrc.fulltext import get_indexer
 
 
-class CustomAttributeValue(Base, db.Model):
+class CustomAttributeValue(Base, Indexed, db.Model):
   """Custom attribute value model"""
 
   __tablename__ = 'custom_attribute_values'
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'custom_attribute_id',
       'attributable_id',
       'attributable_type',
       'attribute_value',
       'attribute_object',
-      PublishOnly('preconditions_failed'),
-  ]
+      reflection.Attribute('preconditions_failed',
+                           create=False,
+                           update=False),
+  )
   _fulltext_attrs = ["attribute_value"]
+  REQUIRED_GLOBAL_REINDEX = False
+
+  _sanitize_html = [
+      "attribute_value",
+  ]
 
   custom_attribute_id = db.Column(
       db.Integer,
@@ -52,20 +61,10 @@ class CustomAttributeValue(Base, db.Model):
   # This is just a mapping for accessing local functions so protected access
   # warning is a false positive
   _validator_map = {
+      "Date": lambda self: self._validate_date(),
       "Dropdown": lambda self: self._validate_dropdown(),
       "Map:Person": lambda self: self._validate_map_person(),
   }
-
-  _custom_publish = {
-      "attribute_value": lambda self: self._publish_attribute_value(),
-  }
-  _custom_update = {
-      "attribute_value": lambda self, val: self._update_attribute_value(val),
-  }
-
-  # formats to represent Date-type values
-  DATE_FORMAT_DB = "%Y-%m-%d"
-  DATE_FORMAT_JSON = "%m/%d/%Y"
 
   @property
   def latest_revision(self):
@@ -73,13 +72,21 @@ class CustomAttributeValue(Base, db.Model):
     # TODO: make eager_query fetch only the first Revision
     return self._related_revisions[0]
 
+  def delere_record(self):
+    get_indexer().delete_record(self.attributable_id,
+                                self.attributable_type,
+                                False)
+
+  def get_reindex_pair(self):
+    return (self.attributable_type, self.attributable_id)
+
   @declared_attr
-  def _related_revisions(self):
+  def _related_revisions(cls):  # pylint: disable=no-self-argument
     def join_function():
       """Function to join CAV to its latest revision."""
       resource_id = foreign(Revision.resource_id)
       resource_type = foreign(Revision.resource_type)
-      return and_(resource_id == self.id,
+      return and_(resource_id == cls.id,
                   resource_type == "CustomAttributeValue")
 
     return db.relationship(
@@ -255,6 +262,16 @@ class CustomAttributeValue(Base, db.Model):
                          "expected one of {l}"
                          .format(v=self.attribute_value, l=valid_options))
 
+  def _validate_date(self):
+    """Convert date format."""
+    if self.attribute_value:
+      # Validate the date format by trying to parse it
+      self.attribute_value = utils.convert_date_format(
+          self.attribute_value,
+          utils.DATE_FORMAT_ISO,
+          utils.DATE_FORMAT_ISO,
+      )
+
   def validate(self):
     """Validate custom attribute value."""
     # pylint: disable=protected-access
@@ -268,7 +285,7 @@ class CustomAttributeValue(Base, db.Model):
     if validator:
       validator(self)
 
-  @computed_property
+  @builder.simple_property
   def is_empty(self):
     """Return True if the CAV is empty or holds a logically empty value."""
     # The CAV is considered empty when:
@@ -287,7 +304,7 @@ class CustomAttributeValue(Base, db.Model):
     # Otherwise it the CAV is not empty
     return False
 
-  @computed_property
+  @builder.simple_property
   def preconditions_failed(self):
     """A list of requirements self introduces that are unsatisfied.
 
@@ -316,7 +333,7 @@ class CustomAttributeValue(Base, db.Model):
       if flags.comment_required:
         failed_preconditions += self._check_mandatory_comment()
       if flags.evidence_required:
-        failed_preconditions += self._check_mandatory_evidence()
+        failed_preconditions += self.attributable.check_mandatory_evidence()
     return failed_preconditions
 
   def _check_mandatory_comment(self):
@@ -332,28 +349,6 @@ class CustomAttributeValue(Base, db.Model):
       comment_found = False
     if not comment_found:
       return ["comment"]
-    else:
-      return []
-
-  def _check_mandatory_evidence(self):
-    """Check presence of mandatory evidence."""
-    if hasattr(self.attributable, "object_documents"):
-      # Note: this is a suboptimal implementation of mandatory evidence check;
-      # it should be refactored once Evicence-CA mapping is introduced
-      def evidence_required(cav):
-        """Return True if an evidence is required for this `cav`."""
-        flags = (self._multi_choice_options_to_flags(cav.custom_attribute)
-                 .get(cav.attribute_value))
-        return flags and flags.evidence_required
-      evidence_found = (len(self.attributable.object_documents) >=
-                        len([cav
-                             for cav in self.attributable
-                                            .custom_attribute_values
-                             if evidence_required(cav)]))
-    else:
-      evidence_found = False
-    if not evidence_found:
-      return ["evidence"]
     else:
       return []
 
@@ -389,58 +384,3 @@ class CustomAttributeValue(Base, db.Model):
           (make_flags(mask)
            for mask in cad.multi_choice_mandatory.split(",")),
       ))
-
-  def _publish_attribute_value(self):
-    """Return value serialized for JSON.
-
-    If self is a Date-type CAV, convert it to MM/DD/YYYY.
-    """
-
-    from ggrc.models import CustomAttributeDefinition
-
-    result = self.attribute_value
-    literal_date = CustomAttributeDefinition.ValidTypes.DATE
-
-    self_is_date = self.custom_attribute.attribute_type == literal_date
-    if self_is_date and self.attribute_value:
-      try:
-        result = utils.convert_date_format(self.attribute_value,
-                                           self.DATE_FORMAT_DB,
-                                           self.DATE_FORMAT_JSON)
-      except ValueError:
-        # invalid format or not a date, don't convert
-        pass
-
-    return result
-
-  def _update_attribute_value(self, new_value):
-    """Update value from received JSON.
-
-    If self is a Date-type CAV, convert the received value to YYYY-MM-DD.
-    """
-
-    from ggrc.models import CustomAttributeDefinition
-
-    literal_date = CustomAttributeDefinition.ValidTypes.DATE
-
-    # pylint: disable=access-member-before-definition
-    # pylint: disable=attribute-defined-outside-init
-    # false positives on the next block; the author doesn't like that block too
-    if self.custom_attribute is None:
-      # self is newly created and is not yet flushed to the db
-      # manually store self.custom_attribute because it is cached as None until
-      # flush & expire
-      self.custom_attribute = (db.session.query(CustomAttributeDefinition)
-                               .filter_by(id=self.custom_attribute_id).one())
-
-    self_is_date = self.custom_attribute.attribute_type == literal_date
-    if self_is_date and new_value:
-      try:
-        new_value = utils.convert_date_format(new_value,
-                                              self.DATE_FORMAT_JSON,
-                                              self.DATE_FORMAT_DB)
-      except ValueError:
-        # invalid format or not a date, don't convert
-        pass
-
-    self.attribute_value = new_value

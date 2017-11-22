@@ -1,4 +1,4 @@
--# Copyright (C) 2016 Google Inc.
+-# Copyright (C) 2017 Google Inc.
 -# Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 -extends "layouts/dashboard.haml"
@@ -25,5 +25,8 @@
     "user_task_count": GGRC.counters._task_counts[0],
     "user_overdue_task_count": GGRC.counters._task_counts[1]
   };
+
+-block page_scripts
+  %script{ type:'text/javascript', src:'{{config.get("DASHBOARD_JS_PATH")}}' }
 
 -block widget_area

@@ -1,10 +1,12 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
 .new-tree {
   .tree-item-add {
+    padding-top: 10px;
+
     .add-single-object {
       padding-top: 4px;
       select,
@@ -136,7 +138,6 @@
   h3 {
     font-size:14px;
     font-weight:bold;
-    border-bottom:1px solid #eee;
   }
 }
 
@@ -149,6 +150,7 @@
 .inline-data-content {
   display:inline-block;
   line-height:30px;
+  margin: 10px 0;
   text-overflow: ellipsis;
   word-wrap:no-wrap;
   width:100%;
@@ -158,6 +160,10 @@
   &.oneline {
     display: block;
   }
+
+  .deleteTrigger {
+    margin-left: 10px;
+  }
 }
 
 .inline-explanation {
@@ -165,6 +171,9 @@
   font-style:italic;
   line-height:30px;
   font-size:12px;
+  font-weight: normal;
+  padding-left: 10px;
+  text-transform: none;
 }
 
 .btn.end-cycle.pull-right {
@@ -274,4 +283,101 @@
 ul.add-task-comment {
   margin: 20px 0 0;
   list-style-type: none;
+}
+
+.task_group_tasks {
+  &__header {
+    border-bottom: 1px solid $lightGray;
+    display: flex;
+    padding: 10px 0 10px 40px;
+
+    &-item {
+      flex: 1 1 25%;
+      text-transform: uppercase;
+
+      &-edit {
+        width: 60px;
+      }
+    }
+  }
+
+  &__list-item {
+    .task-wrap {
+      border-bottom: 1px solid $lightGray;
+      display: flex;
+    }
+
+    &-column {
+      display: flex;
+      align-items: center;
+      flex: 1 1 25%;
+
+      &-action {
+        padding-top: 10px;
+        width: 60px;
+      }
+
+      &-drag {
+        padding-top: 17px;
+        width: 40px;
+      }
+
+      > .people-list {
+        word-wrap: break-word;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+    }
+  }
+}
+
+// temporary applied styles
+// need to be removed after Task Add/Edit modals redesign
+.modal {
+  .form {
+    .form {
+      &__label {
+        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: bold;
+        margin-bottom: 5px;
+
+        &--hideable {
+          display: inline;
+        }
+      }
+    }
+
+    i.fa-asterisk {
+      color: $icon-color-empty;
+      font-size: 11px;
+      opacity: 1;
+      vertical-align: middle;
+    }
+
+    .people-groups {
+      .people-group {
+        flex-basis: auto;
+        margin-right: 0;
+        max-width: none;
+
+        .people-group {
+          &__title {
+            line-height: 18px;
+            margin-bottom: 5px;
+
+            i.fa-asterisk {
+              align-self: center;
+              height: 11px;
+              margin-left: 4px;
+              width: 12px;
+            }
+          }
+        }
+      }
+    }
+  }
 }

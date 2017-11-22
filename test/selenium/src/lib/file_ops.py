@@ -1,28 +1,29 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+"Path and file settings."
 
-import os
 import logging
+import os
+import shutil
 
-
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 def create_directory(path):
   """
-  Creates a directory if it doesn't already exist.
-  """
+ Creates directory if it doesn't already exist.
+ """
   # Check if path is a file_path or a dir_path. Dir path is a string that
   # ends with os.sep
   if path[-1] != os.sep:
-    path, file_name = os.path.split(path)
-
+    path, _ = os.path.split(path)
   if not os.path.exists(path):
-    logger.info("Creating directory: %s", path)
+    LOGGER.info("Creating directory: %s", path)
     os.makedirs(path)
 
 
 def get_unique_postfix(file_path, extension):
+  """Add numeric postfix for file."""
   postfix = 0
   new_path = file_path + str(postfix) + extension
 
@@ -34,5 +35,5 @@ def get_unique_postfix(file_path, extension):
 
 
 def delete_directory_contents(path):
-  for file_name in os.listdir(path):
-    os.remove(path + os.sep + file_name)
+  """Remove all files and sub-dir in provided path."""
+  shutil.rmtree(path)

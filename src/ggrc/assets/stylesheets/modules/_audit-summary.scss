@@ -1,0 +1,63 @@
+/*
+ * Copyright (C) 2017 Google Inc.
+ * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+ */
+
+
+.audit-summary {
+  .legend {
+    position: relative;
+    min-height: 300px;
+    table {
+      margin-top: 20px;
+      list-style: none;
+      text-align: left;
+      min-width: 300px;
+      font-size: 14px;
+
+      th {
+        text-transform: uppercase;
+      }
+
+      td,
+      th {
+        padding-bottom: 16px;
+        padding-left: 30px;
+        text-align: right;
+
+        &:first-child {
+          text-align: left;
+          padding-left: 0;
+        }
+
+        i {
+          padding-right: 2px;
+          font-size: 9px;
+          vertical-align: 2px;
+        }
+      }
+
+      tfoot {
+        border-top: 1px solid $warmGray;
+        td {
+          padding-top: 16px;
+          font-weight: bold;
+        }
+      }
+    }
+  }
+
+  .hidden {
+    display: none;
+  }
+
+  .title {
+    max-width: 100%;
+    margin-right: 0;
+  }
+
+  .pane-header {
+    border-bottom: 1px solid $sidenavBorder;
+    padding-bottom: 19px;
+  }
+}

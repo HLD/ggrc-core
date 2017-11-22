@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Mixins to add common attributes and relationships. Note, all model classes
@@ -27,13 +27,16 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import validates
 from sqlalchemy.orm.session import Session
 
+from ggrc import builder
 from ggrc import db
 from ggrc.models import reflection
-from ggrc.models.computed_property import computed_property
 from ggrc.models.deferred import deferred
 from ggrc.models.inflector import ModelInflectorDescriptor
 from ggrc.models.reflection import AttributeInfo
 from ggrc.models.mixins.customattributable import CustomAttributable
+from ggrc.models.mixins.notifiable import Notifiable
+from ggrc.utils import create_stub
+from ggrc.fulltext import attributes
 
 
 # pylint: disable=invalid-name
@@ -46,13 +49,14 @@ class Identifiable(object):
   id = db.Column(db.Integer, primary_key=True)  # noqa
 
   # REST properties
-  _publish_attrs = ['id', 'type']
-  _update_attrs = []
-  _stub_attrs = ['id', 'type']
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('id', create=False, update=False),
+      reflection.Attribute('type', create=False, update=False),
+  )
 
   _inflector = ModelInflectorDescriptor()
 
-  @computed_property
+  @builder.simple_property
   def type(self):
     return self.__class__.__name__
 
@@ -66,6 +70,7 @@ class Identifiable(object):
 
   @classmethod
   def eager_inclusions(cls, query, include_links):
+    """Load related items listed in include_links eagerly."""
     options = []
     for include_link in include_links:
       inclusion_class = getattr(cls, include_link).property.mapper.class_
@@ -75,7 +80,7 @@ class Identifiable(object):
     return query.options(*options)
 
   @declared_attr
-  def __table_args__(cls):
+  def __table_args__(cls):  # pylint: disable=no-self-argument
     extra_table_args = AttributeInfo.gather_attrs(cls, '_extra_table_args')
     table_args = []
     table_dict = {}
@@ -102,44 +107,48 @@ class ChangeTracked(object):
   """A model with fields to tracked the last user to modify the model, the
   creation time of the model, and the last time the model was updated.
   """
-  # FIXME: change modified_by_id to nullable=False when there is an Account
-  # model
   @declared_attr
-  def modified_by_id(cls):
-    return deferred(db.Column(db.Integer), cls.__name__)
+  def modified_by_id(cls):  # pylint: disable=no-self-argument
+    """Id of user who did the last modification of the object."""
+    return db.Column(db.Integer)
 
   @declared_attr
-  def created_at(cls):
+  def created_at(cls):  # pylint: disable=no-self-argument
+    """Date of creation. Set to current time on object creation."""
     column = db.Column(
         db.DateTime,
         nullable=False,
         default=db.text('current_timestamp'),
     )
-    return deferred(column, cls.__name__)
+    return column
 
   @declared_attr
-  def updated_at(cls):
+  def updated_at(cls):  # pylint: disable=no-self-argument
+    """Date of last update. Set to current time on object creation/update."""
     column = db.Column(
         db.DateTime,
         nullable=False,
         default=db.text('current_timestamp'),
         onupdate=db.text('current_timestamp'),
     )
-    return deferred(column, cls.__name__)
+    return column
 
   @declared_attr
-  def modified_by(cls):
+  def modified_by(cls):  # pylint: disable=no-self-argument
+    """Relationship to user referenced by modified_by_id."""
     return db.relationship(
         'Person',
         primaryjoin='{0}.modified_by_id == Person.id'.format(cls.__name__),
         foreign_keys='{0}.modified_by_id'.format(cls.__name__),
+        remote_side='Person.id',
         uselist=False,
     )
 
   @staticmethod
-  def _extra_table_args(cls):
+  def _extra_table_args(model):
+    """Apply extra table args (like indexes) to model definition."""
     return (
-        db.Index('ix_{}_updated_at'.format(cls.__tablename__), 'updated_at'),
+        db.Index('ix_{}_updated_at'.format(model.__tablename__), 'updated_at'),
     )
 
   # TODO Add a transaction id, this will be handy for generating etags
@@ -147,91 +156,127 @@ class ChangeTracked(object):
   # transaction_id = db.Column(db.Integer)
 
   # REST properties
-  _publish_attrs = [
-      'modified_by',
-      'created_at',
-      'updated_at',
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('modified_by', create=False, update=False),
+      reflection.Attribute('created_at', create=False, update=False),
+      reflection.Attribute('updated_at', create=False, update=False),
+  )
+  _fulltext_attrs = [
+      attributes.DatetimeFullTextAttr('created_at', 'created_at'),
+      attributes.DatetimeFullTextAttr('updated_at', 'updated_at'),
+      attributes.FullTextAttr(
+          "modified_by", "modified_by", ["email", "name"]
+      ),
   ]
-  _update_attrs = []
+
+  _aliases = {
+      "updated_at": "Last Updated",
+      "created_at": "Created Date",
+      "modified_by": "Last Updated By",
+  }
+
+  @classmethod
+  def indexed_query(cls):
+    return super(ChangeTracked, cls).indexed_query().options(
+        orm.Load(cls).load_only("created_at", "updated_at"),
+        orm.Load(cls).joinedload(
+            "modified_by"
+        ).load_only(
+            "name", "email", "id"
+        ),
+    )
 
 
 class Titled(object):
+  """Mixin that defines `title` field.
+
+  Strips title on update and defines optional UNIQUE constraint on it.
+  """
+
+  @validates('title')
+  def validate_title(self, key, value):
+    """Validates and cleans Title that has leading/trailing spaces"""
+    # pylint: disable=unused-argument,no-self-use
+    return value if value is None else value.strip()
 
   @declared_attr
-  def title(cls):
+  def title(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.String, nullable=False), cls.__name__)
 
+  @classmethod
+  def indexed_query(cls):
+    return super(Titled, cls).indexed_query().options(
+        orm.Load(cls).load_only("title"),
+    )
+
   @staticmethod
-  def _extra_table_args(cls):
-    if getattr(cls, '_title_uniqueness', True):
+  def _extra_table_args(model):
+    """If model._title_uniqueness is set, apply UNIQUE constraint to title."""
+    if getattr(model, '_title_uniqueness', True):
       return (
           db.UniqueConstraint(
-              'title', name='uq_t_{}'.format(cls.__tablename__)),
+              'title', name='uq_t_{}'.format(model.__tablename__)),
       )
     return ()
 
   # REST properties
-  _publish_attrs = ['title']
+  _api_attrs = reflection.ApiAttributes('title')
   _fulltext_attrs = ['title']
   _sanitize_html = ['title']
   _aliases = {"title": "Title"}
 
 
 class Described(object):
+  """Mixin that defines `description` field."""
 
   @declared_attr
-  def description(cls):
+  def description(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.Text), cls.__name__)
 
   # REST properties
-  _publish_attrs = ['description']
+  _api_attrs = reflection.ApiAttributes('description')
   _fulltext_attrs = ['description']
   _sanitize_html = ['description']
   _aliases = {"description": "Description"}
 
+  @classmethod
+  def indexed_query(cls):
+    return super(Described, cls).indexed_query().options(
+        orm.Load(cls).load_only("description"),
+    )
+
 
 class Noted(object):
+  """Mixin that defines `notes` field."""
 
   @declared_attr
-  def notes(cls):
+  def notes(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.Text), cls.__name__)
 
   # REST properties
-  _publish_attrs = ['notes']
+  _api_attrs = reflection.ApiAttributes('notes')
   _fulltext_attrs = ['notes']
   _sanitize_html = ['notes']
   _aliases = {"notes": "Notes"}
 
-
-class Hyperlinked(object):
-
-  @declared_attr
-  def url(cls):
-    return deferred(db.Column(db.String), cls.__name__)
-
-  @declared_attr
-  def reference_url(cls):
-    return deferred(db.Column(db.String), cls.__name__)
-
-  # REST properties
-  _publish_attrs = ['url', 'reference_url']
-
-  _aliases = {
-      "url": "Url",
-      "reference_url": "Reference URL",
-  }
+  @classmethod
+  def indexed_query(cls):
+    return super(Noted, cls).indexed_query().options(
+        orm.Load(cls).load_only("notes"),
+    )
 
 
 class Hierarchical(object):
+  """Mixin that defines `parent` and `child` fields to organize hierarchy."""
 
   @declared_attr
-  def parent_id(cls):
+  def parent_id(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(
         db.Integer, db.ForeignKey('{0}.id'.format(cls.__tablename__))),
         cls.__name__)
 
   @declared_attr
-  def children(cls):
+  def children(cls):  # pylint: disable=no-self-argument
     return db.relationship(
         cls.__name__,
         backref=db.backref(
@@ -239,10 +284,18 @@ class Hierarchical(object):
     )
 
   # REST properties
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes('children', 'parent')
+  _fulltext_attrs = [
       'children',
       'parent',
   ]
+
+  @classmethod
+  def indexed_query(cls):
+    return super(Hierarchical, cls).indexed_query().options(
+        orm.Load(cls).subqueryload("children"),
+        orm.Load(cls).joinedload("parent"),
+    )
 
   @classmethod
   def eager_query(cls):
@@ -254,33 +307,86 @@ class Hierarchical(object):
 
 
 class Timeboxed(object):
-
+  """Mixin that defines `start_date` and `end_date` fields."""
   @declared_attr
-  def start_date(cls):
+  def start_date(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.Date), cls.__name__)
 
   @declared_attr
-  def end_date(cls):
+  def end_date(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.Date), cls.__name__)
+
+  # pylint: disable=unused-argument,no-self-use
+  @validates('start_date', 'end_date')
+  def validate_date(self, key, value):
+    return value.date() if isinstance(value, datetime.datetime) else value
+  # pylint: enable=unused-argument,no-self-use
 
   # REST properties
-  _publish_attrs = ['start_date', 'end_date']
+  _api_attrs = reflection.ApiAttributes('start_date', 'end_date')
 
   _aliases = {
       "start_date": "Effective Date",
       "end_date": "Stop Date",
   }
 
+  _fulltext_attrs = [
+      attributes.DateFullTextAttr('start_date', 'start_date'),
+      attributes.DateFullTextAttr('end_date', 'end_date'),
+  ]
+
+  @classmethod
+  def indexed_query(cls):
+    return super(Timeboxed, cls).indexed_query().options(
+        orm.Load(cls).load_only("start_date", "end_date"),
+    )
+
+
+class LastDeprecatedTimeboxed(Timeboxed):
+  """Mixin that redefines `end_date`'s alias."""
+  _aliases = {
+      "end_date": {
+          "display_name": "Last Deprecated Date",
+          "view_only": True,
+      },
+  }
+
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('end_date', create=False, update=False),
+  )
+
+  AUTO_SETUP_STATUS = "Deprecated"
+
+  @validates('status')
+  def validate_status(self, key, value):
+    """Autosetup current date as end date if 'Deprecated' status will setup."""
+    superinstance = super(Timeboxed, self)
+    if hasattr(superinstance, "validate_status"):
+      value = superinstance.validate_status(key, value)
+    if value != self.status and value == self.AUTO_SETUP_STATUS:
+      self.end_date = datetime.datetime.now()
+    return value
+
 
 class Stateful(object):
+  """Mixin that defines `status` field and status validation logic.
+
+  TODO: unify with Statusable.
+  """
 
   @declared_attr
-  def status(cls):
-    return deferred(
-        db.Column(db.String, default=cls.default_status), cls.__name__)
+  def status(cls):  # pylint: disable=no-self-argument
+    return deferred(db.Column(
+        db.String, default=cls.default_status, nullable=False), cls.__name__)
 
-  _publish_attrs = ['status']
-  _aliases = {"status": "State"}
+  _api_attrs = reflection.ApiAttributes('status')
+  _fulltext_attrs = ['status']
+  _aliases = {
+      "status": {
+          "display_name": "State",
+          "mandatory": False
+      }
+  }
 
   @classmethod
   def default_status(cls):
@@ -292,6 +398,7 @@ class Stateful(object):
 
   @validates('status')
   def validate_status(self, key, value):
+    """Use default status if value is None, check that it is in valid set."""
     # Sqlalchemy only uses one validator per status (not necessarily the
     # first) and ignores others. This enables cooperation between validators
     # since there are other mixins that want to touch 'status'.
@@ -303,6 +410,12 @@ class Stateful(object):
       message = u"Invalid state '{}'".format(value)
       raise ValueError(message)
     return value
+
+  @classmethod
+  def indexed_query(cls):
+    return super(Stateful, cls).indexed_query().options(
+        orm.Load(cls).load_only("status"),
+    )
 
 
 class FinishedDate(object):
@@ -317,19 +430,23 @@ class FinishedDate(object):
   # pylint: disable=method-hidden
   # because validator only sets date per model instance
   @declared_attr
-  def finished_date(cls):
+  def finished_date(cls):  # pylint: disable=no-self-argument
     return deferred(
-        db.Column(db.Date, nullable=True),
+        db.Column(db.DateTime, nullable=True),
         cls.__name__
     )
 
-  _publish_attrs = [
-      reflection.PublishOnly('finished_date')
-  ]
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('finished_date', create=False, update=False),
+  )
 
   _aliases = {
       "finished_date": "Finished Date"
   }
+
+  _fulltext_attrs = [
+      attributes.DatetimeFullTextAttr('finished_date', 'finished_date'),
+  ]
 
   @validates('status')
   def validate_status(self, key, value):
@@ -351,6 +468,12 @@ class FinishedDate(object):
       self.finished_date = None
     return value
 
+  @classmethod
+  def indexed_query(cls):
+    return super(FinishedDate, cls).indexed_query().options(
+        orm.Load(cls).load_only("finished_date"),
+    )
+
 
 class VerifiedDate(object):
   """Adds 'Verified Date' which is set when status is set to 'Verified'.
@@ -366,9 +489,9 @@ class VerifiedDate(object):
   # pylint: disable=method-hidden
   # because validator only sets date per model instance
   @declared_attr
-  def verified_date(cls):
+  def verified_date(cls):  # pylint: disable=no-self-argument
     return deferred(
-        db.Column(db.Date, nullable=True),
+        db.Column(db.DateTime, nullable=True),
         cls.__name__
     )
 
@@ -376,14 +499,25 @@ class VerifiedDate(object):
   def verified(self):
     return self.verified_date != None  # noqa
 
-  _publish_attrs = [
-      reflection.PublishOnly('verified'),
-      reflection.PublishOnly('verified_date'),
-  ]
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('verified', create=False, update=False),
+      reflection.Attribute('verified_date', create=False, update=False),
+  )
 
   _aliases = {
       "verified_date": "Verified Date"
   }
+
+  _fulltext_attrs = [
+      attributes.DatetimeFullTextAttr("verified_date", "verified_date"),
+      "verified",
+  ]
+
+  @classmethod
+  def indexed_query(cls):
+    return super(VerifiedDate, cls).indexed_query().options(
+        orm.Load(cls).load_only("verified_date"),
+    )
 
   @validates('status')
   def validate_status(self, key, value):
@@ -406,22 +540,29 @@ class VerifiedDate(object):
 
 
 class ContextRBAC(object):
+  """Defines `context` relationship for Context-based access control."""
 
   @declared_attr
-  def context_id(cls):
+  def context_id(cls):  # pylint: disable=no-self-argument
     return db.Column(db.Integer, db.ForeignKey('contexts.id'))
 
   @declared_attr
-  def context(cls):
+  def context(cls):  # pylint: disable=no-self-argument
     return db.relationship('Context', uselist=False)
 
   @staticmethod
-  def _extra_table_args(cls):
+  def _extra_table_args(model):
     return (
-        db.Index('fk_{}_contexts'.format(cls.__tablename__), 'context_id'),
+        db.Index('fk_{}_contexts'.format(model.__tablename__), 'context_id'),
     )
 
-  _publish_attrs = ['context']
+  _api_attrs = reflection.ApiAttributes('context')
+
+  @classmethod
+  def indexed_query(cls):
+    return super(ContextRBAC, cls).indexed_query().options(
+        orm.Load(cls).load_only("context_id"),
+    )
 
   # @classmethod
   # def eager_query(cls):
@@ -432,24 +573,87 @@ class ContextRBAC(object):
   # orm.subqueryload('context'))
 
 
+def is_attr_of_type(object_, attr_name, mapped_class):
+  """Check if relationship property points to mapped_class"""
+  cls = object_.__class__
+
+  if isinstance(attr_name, basestring):
+    if hasattr(cls, attr_name):
+      cls_attr = getattr(cls, attr_name)
+      if (hasattr(cls_attr, "property") and
+          isinstance(cls_attr.property,
+                     orm.properties.RelationshipProperty) and
+         cls_attr.property.mapper.class_ == mapped_class):
+        return True
+  return False
+
+
 class Base(ChangeTracked, ContextRBAC, Identifiable):
 
   """Several of the models use the same mixins. This class covers that common
   case.
   """
+  _people_log_mappings = [
+      "principal_assessor_id",
+      "secondary_assessor_id",
+      "contact_id",
+      "secondary_contact_id",
+      "modified_by_id",
+      "attribute_object_id",  # used for person mapping CA
+  ]
 
-  def log_json(self):
-    # to integrate with CustomAttributable without order dependencies
-    res = getattr(super(Base, self), "log_json", lambda: {})()
+  @staticmethod
+  def _person_stub(id_):
+    return {
+        'type': u"Person",
+        'id': id_,
+        'context_id': None,
+        'href': u"/api/people/{}".format(id_),
+    }
+
+  def log_json_base(self):
+    """Get a dict with attributes of self that is easy to serialize to json.
+
+    This method lists only first-class attributes.
+    """
+    res = {}
+
     for column in self.__table__.columns:
       try:
         res[column.name] = getattr(self, column.name)
       except AttributeError:
         pass
-    res['display_name'] = self.display_name
+    res["display_name"] = self.display_name
     return res
 
-  @computed_property
+  def log_json(self):
+    """Get a dict with attributes and related objects of self.
+
+    This method converts additionally person-mapping attributes and owners
+    to person stubs.
+    """
+    from ggrc import models
+
+    res = self.log_json_base()
+
+    for attr in self._people_log_mappings:
+      if hasattr(self, attr):
+        value = getattr(self, attr)
+        # hardcoded [:-3] is used to strip "_id" suffix
+        res[attr[:-3]] = self._person_stub(value) if value else None
+
+    for attr_name in AttributeInfo.gather_publish_attrs(self.__class__):
+      if is_attr_of_type(self, attr_name, models.Option):
+        attr = getattr(self, attr_name)
+        if attr:
+          stub = create_stub(attr)
+          stub["title"] = attr.title
+        else:
+          stub = None
+        res[attr_name] = stub
+    return res
+
+  @builder.simple_property
   def display_name(self):
     try:
       return self._display_name()
@@ -489,6 +693,32 @@ class Base(ChangeTracked, ContextRBAC, Identifiable):
 
     return target
 
+  CACHED_ATTRIBUTE_MAP = None
+
+  @classmethod
+  def attributes_map(cls):
+    """Get class attributes map"""
+    if cls.CACHED_ATTRIBUTE_MAP:
+      return cls.CACHED_ATTRIBUTE_MAP
+    aliases = AttributeInfo.gather_aliases(cls)
+    cls.CACHED_ATTRIBUTE_MAP = {}
+    for key, value in aliases.items():
+      if isinstance(value, dict):
+        name = value["display_name"]
+        filter_by = None
+        if value.get("filter_by"):
+          filter_by = getattr(cls, value["filter_by"], None)
+      else:
+        name = value
+        filter_by = None
+      if not name:
+        continue
+      tmp = getattr(cls, "PROPERTY_TEMPLATE", "{}")
+      name = tmp.format(name)
+      key = tmp.format(key)
+      cls.CACHED_ATTRIBUTE_MAP[name.lower()] = (key.lower(), filter_by)
+    return cls.CACHED_ATTRIBUTE_MAP
+
 
 class Slugged(Base):
 
@@ -498,19 +728,20 @@ class Slugged(Base):
   """
 
   @declared_attr
-  def slug(cls):
+  def slug(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.String, nullable=False), cls.__name__)
 
   @staticmethod
-  def _extra_table_args(cls):
-    if getattr(cls, '_slug_uniqueness', True):
+  def _extra_table_args(model):
+    if getattr(model, '_slug_uniqueness', True):
       return (
-          db.UniqueConstraint('slug', name='uq_{}'.format(cls.__tablename__)),
+          db.UniqueConstraint('slug',
+                              name='uq_{}'.format(model.__tablename__)),
       )
     return ()
 
   # REST properties
-  _publish_attrs = ['slug']
+  _api_attrs = reflection.ApiAttributes('slug')
   _fulltext_attrs = ['slug']
   _sanitize_html = ['slug']
   _aliases = {
@@ -523,9 +754,16 @@ class Slugged(Base):
   }
 
   @classmethod
+  def indexed_query(cls):
+    return super(Slugged, cls).indexed_query().options(
+        orm.Load(cls).load_only("slug"),
+    )
+
+  @classmethod
   def generate_slug_for(cls, obj):
+    """Generate unique Slug among the objects of the current class"""
     _id = getattr(obj, 'id', uuid1())
-    obj.slug = "{0}-{1}".format(cls.generate_slug_prefix_for(obj), _id)
+    obj.slug = "{0}-{1}".format(cls.generate_slug_prefix(), _id)
     # We need to make sure the generated slug is not already present in the
     # database. If it is, we increment the id until we find a slug that is
     # unique.
@@ -534,160 +772,174 @@ class Slugged(Base):
     # session rollback at this point we are sticking with a
     # suboptimal solution for now.
     INCREMENT = 1000
-    while cls.query.filter(cls.slug == obj.slug).count():
+    while db.session.query(
+            cls.query.filter(cls.slug == obj.slug).exists()).scalar():
       _id += INCREMENT
-      obj.slug = "{0}-{1}".format(cls.generate_slug_prefix_for(obj), _id)
+      obj.slug = "{0}-{1}".format(cls.generate_slug_prefix(), _id)
 
   @classmethod
-  def generate_slug_prefix_for(cls, obj):
-    return obj.__class__.__name__.upper()
+  def generate_slug_prefix(cls):
+    return cls.__name__.upper()
 
   @classmethod
   def ensure_slug_before_flush(cls, session, flush_context, instances):
     """Set the slug to a default string so we don't run afoul of the NOT NULL
     constraint.
     """
+    # pylint: disable=unused-argument
     for o in session.new:
       if isinstance(o, Slugged) and (o.slug is None or o.slug == ''):
         o.slug = str(uuid1())
-        o._replace_slug = True
+        o._replace_slug = True  # pylint: disable=protected-access
 
   @classmethod
   def ensure_slug_after_flush_postexec(cls, session, flush_context):
     """Replace the placeholder slug with a real slug that will be set on the
     next flush/commit.
     """
+    # pylint: disable=unused-argument
     for o in session.identity_map.values():
       if isinstance(o, Slugged) and hasattr(o, '_replace_slug'):
         o.generate_slug_for(o)
         delattr(o, '_replace_slug')
+
 
 event.listen(Session, 'before_flush', Slugged.ensure_slug_before_flush)
 event.listen(
     Session, 'after_flush_postexec', Slugged.ensure_slug_after_flush_postexec)
 
 
-class Mapping(Stateful, Base):
-  VALID_STATES = (
-      'Draft',
-      'Final',
-  )
-
-
 class WithContact(object):
+  """Mixin that defines `contact` and `secondary_contact` fields."""
 
   @declared_attr
-  def contact_id(cls):
+  def contact_id(cls):  # pylint: disable=no-self-argument
     return deferred(
         db.Column(db.Integer, db.ForeignKey('people.id')), cls.__name__)
 
   @declared_attr
-  def secondary_contact_id(cls):
+  def secondary_contact_id(cls):  # pylint: disable=no-self-argument
     return deferred(
         db.Column(db.Integer, db.ForeignKey('people.id')), cls.__name__)
 
   @declared_attr
-  def contact(cls):
+  def contact(cls):  # pylint: disable=no-self-argument
     return db.relationship(
         'Person',
         uselist=False,
         foreign_keys='{}.contact_id'.format(cls.__name__))
 
   @declared_attr
-  def secondary_contact(cls):
+  def secondary_contact(cls):  # pylint: disable=no-self-argument
     return db.relationship(
         'Person',
         uselist=False,
         foreign_keys='{}.secondary_contact_id'.format(cls.__name__))
 
   @staticmethod
-  def _extra_table_args(cls):
+  def _extra_table_args(model):
     return (
-        db.Index('fk_{}_contact'.format(cls.__tablename__), 'contact_id'),
+        db.Index('fk_{}_contact'.format(model.__tablename__), 'contact_id'),
         db.Index('fk_{}_secondary_contact'.format(
-            cls.__tablename__), 'secondary_contact_id'),
+            model.__tablename__), 'secondary_contact_id'),
     )
 
-  _publish_attrs = ['contact', 'secondary_contact']
+  _api_attrs = reflection.ApiAttributes('contact', 'secondary_contact')
+  _fulltext_attrs = [
+      attributes.FullTextAttr(
+          "contact",
+          "contact",
+          ["email", "name"]
+      ),
+      attributes.FullTextAttr(
+          'secondary_contact',
+          'secondary_contact',
+          ["email", "name"]),
+  ]
+
+  @classmethod
+  def indexed_query(cls):
+    return super(WithContact, cls).indexed_query().options(
+        orm.Load(cls).joinedload(
+            "contact"
+        ).load_only(
+            "name",
+            "email",
+            "id"
+        ),
+        orm.Load(cls).joinedload(
+            "secondary_contact"
+        ).load_only(
+            "name",
+            "email",
+            "id"
+        ),
+    )
+
   _aliases = {
-      "contact": {
-          "display_name": "Primary Contact",
-          "filter_by": "_filter_by_contact",
-      },
-      "secondary_contact": {
-          "display_name": "Secondary Contact",
-          "filter_by": "_filter_by_secondary_contact",
-      },
+      "contact": "Primary Contact",
+      "secondary_contact": "Secondary Contact",
   }
 
-  @classmethod
-  def _filter_by_contact(cls, predicate):
-    # dependency cycle mixins.py <~> person.py
-    from ggrc.models.person import Person
-    return Person.query.filter(
-        (Person.id == cls.contact_id) &
-        (predicate(Person.name) | predicate(Person.email))
-    ).exists()
 
-  @classmethod
-  def _filter_by_secondary_contact(cls, predicate):
-    # dependency cycle mixins.py <~> person.py
-    from ggrc.models.person import Person
-    return Person.query.filter(
-        (Person.id == cls.secondary_contact_id) &
-        (predicate(Person.name) | predicate(Person.email))
-    ).exists()
+class BusinessObject(Stateful, Noted, Described, Titled, Slugged):
+  """Mixin that groups most commonly-used mixins into one."""
+  DRAFT = 'Draft'
+  ACTIVE = 'Active'
+  DEPRECATED = 'Deprecated'
 
+  VALID_STATES = (DRAFT, ACTIVE, DEPRECATED, )
 
-class BusinessObject(Stateful, Noted, Described, Hyperlinked, WithContact,
-                     Titled, Slugged):
-  VALID_STATES = (
-      'Draft',
-      'Final',
-      'Effective',
-      'Ineffective',
-      'Launched',
-      'Not Launched',
-      'In Scope',
-      'Not in Scope',
-      'Deprecated',
-  )
+  _aliases = {
+      "status": {
+          "display_name": "State",
+          "mandatory": False,
+          "description": "Options are:\n{}".format('\n'.join(VALID_STATES))
+      }
+  }
+
 
 # This class is just a marker interface/mixin to indicate that a model type
 # supports custom attributes.
 
 
 class TestPlanned(object):
+  """Mixin that defines `test_plan` field."""
 
   @declared_attr
-  def test_plan(cls):
+  def test_plan(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.Text), cls.__name__)
 
   # REST properties
-  _publish_attrs = ['test_plan']
+  _api_attrs = reflection.ApiAttributes('test_plan')
   _fulltext_attrs = ['test_plan']
   _sanitize_html = ['test_plan']
-  _aliases = {"test_plan": "Test Plan"}
+  _aliases = {"test_plan": "Assessment Procedure"}
+
+  @classmethod
+  def indexed_query(cls):
+    return super(TestPlanned, cls).indexed_query().options(
+        orm.Load(cls).load_only("test_plan"),
+    )
 
 
 __all__ = [
-    Base,
-    BusinessObject,
-    ChangeTracked,
-    ContextRBAC,
-    CustomAttributable,
-    Described,
-    FinishedDate,
-    Hierarchical,
-    Hyperlinked,
-    Identifiable,
-    Mapping,
-    Noted,
-    Slugged,
-    Stateful,
-    TestPlanned,
-    Timeboxed,
-    Titled,
-    VerifiedDate,
-    WithContact,
+    "Base",
+    "BusinessObject",
+    "ChangeTracked",
+    "ContextRBAC",
+    "CustomAttributable",
+    "Described",
+    "FinishedDate",
+    "Hierarchical",
+    "Identifiable",
+    "Noted",
+    "Notifiable",
+    "Slugged",
+    "Stateful",
+    "TestPlanned",
+    "Timeboxed",
+    "Titled",
+    "VerifiedDate",
+    "WithContact",
 ]

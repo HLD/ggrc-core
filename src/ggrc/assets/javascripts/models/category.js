@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -32,15 +32,6 @@ can.Model.Cacheable("CMS.Models.CategoryBase", {
   , tree_view_options : {
     show_view : "/static/mustache/controls/categories_tree.mustache"
     , start_expanded : false
-    , child_options : [{
-      model : null
-      , property : "children"
-    }, {
-      model : CMS.Models.Control
-      , property : "controls"
-      , show_view : "/static/mustache/controls/tree_with_section_mappings.mustache"
-    }]
-
   }
 }, {
 });

@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 scope = "System"
@@ -10,179 +10,8 @@ owner_base = [
     "Categorization",
     "Category",
     "ControlCategory",
-    "ControlAssertion",
-    {
-        "type": "Issue",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Control",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "DataAsset",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "AccessGroup",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Directive",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Contract",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Policy",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Regulation",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Standard",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Facility",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Market",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Objective",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    "ObjectDocument",
-    "ObjectOwner",
     "ObjectPerson",
     "Option",
-    {
-        "type": "OrgGroup",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Vendor",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Product",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Section",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Clause",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "SystemOrProcess",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "System",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Process",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
-    {
-        "type": "Project",
-        "terms": {
-            "list_property": "owners",
-            "value": "$current_user"
-        },
-        "condition": "contains"
-    },
     {
         "type": "BackgroundTask",
         "terms": {
@@ -195,6 +24,7 @@ owner_base = [
     "CustomAttributeValue",
 ]
 owner_read = owner_base + [
+    "AccessControlList",
     {
         "type": "Relationship",
         "terms": {
@@ -238,8 +68,6 @@ permissions = {
         "ControlAssertion",
         "Control",
         "Comment",
-        "Assessment",
-        "Issue",
         "DataAsset",
         "AccessGroup",
         "Directive",
@@ -252,7 +80,6 @@ permissions = {
         "Help",
         "Market",
         "Objective",
-        "ObjectDocument",
         "ObjectPerson",
         "Option",
         "OrgGroup",
@@ -273,14 +100,6 @@ permissions = {
         "SystemOrProcess",
         "System",
         "Process",
-        {
-            "type": "ObjectOwner",
-            "terms": {
-                "property_name": "ownable.modified_by",
-                "value": "$current_user"
-            },
-            "condition": "is"
-        },
         "Program",
         "Context",
         {

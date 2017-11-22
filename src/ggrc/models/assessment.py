@@ -1,79 +1,69 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Module for Assessment object"""
-
 from sqlalchemy import and_
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import remote
 from sqlalchemy.orm import validates
+from sqlalchemy import orm
 
 from ggrc import db
-from ggrc.models import reflection
-from ggrc.models.audit import Audit
+from ggrc.access_control.roleable import Roleable
+from ggrc.builder import simple_property
 from ggrc.models.comment import Commentable
 from ggrc.models.custom_attribute_definition import CustomAttributeDefinition
+from ggrc.models.mixins.audit_relationship import AuditRelationship
 from ggrc.models.mixins import BusinessObject
 from ggrc.models.mixins import CustomAttributable
 from ggrc.models.mixins import FinishedDate
+from ggrc.models.mixins import Notifiable
 from ggrc.models.mixins import TestPlanned
 from ggrc.models.mixins import Timeboxed
 from ggrc.models.mixins import VerifiedDate
 from ggrc.models.mixins import reminderable
 from ggrc.models.mixins import statusable
+from ggrc.models.mixins import labeled
 from ggrc.models.mixins.assignable import Assignable
 from ggrc.models.mixins.autostatuschangeable import AutoStatusChangeable
 from ggrc.models.mixins.validate_on_complete import ValidateOnComplete
+from ggrc.models.mixins.with_action import WithAction
 from ggrc.models.mixins.with_similarity_score import WithSimilarityScore
 from ggrc.models.deferred import deferred
-from ggrc.models.object_document import EvidenceURL
+from ggrc.models.object_document import PublicDocumentable
 from ggrc.models.object_person import Personable
-from ggrc.models.reflection import PublishOnly
+from ggrc.models import reflection
 from ggrc.models.relationship import Relatable
 from ggrc.models.relationship import Relationship
 from ggrc.models.track_object_state import HasObjectState
-from ggrc.models.track_object_state import track_state_for_class
-from ggrc.utils import similarity_options as similarity_options_module
+from ggrc.fulltext.mixin import Indexed, ReindexRule
+from ggrc.fulltext.attributes import MultipleSubpropertyFullTextAttr
 
 
-class AuditRelationship(object):
+def reindex_by_relationship_attr(relationship_attr):
+  """Return a list of assessments which which need to be reindexed
 
-  """Mixin for mandatory link to an Audit via Relationships."""
-
-  _aliases = {
-      "audit": {
-          "display_name": "Audit",
-          "mandatory": True,
-          "filter_by": "_filter_by_audit",
-          "ignore_on_update": True,
-          "type": reflection.AttributeInfo.Type.MAPPING,
-      },
-  }
-
-  @classmethod
-  def _filter_by_audit(cls, predicate):
-    """Get filter for objects related to an Audit."""
-    return Relationship.query.filter(
-        Relationship.source_type == cls.__name__,
-        Relationship.source_id == cls.id,
-        Relationship.destination_type == Audit.__name__,
-    ).join(Audit, Relationship.destination_id == Audit.id).filter(
-        predicate(Audit.slug)
-    ).exists() | Relationship.query.filter(
-        Relationship.destination_type == cls.__name__,
-        Relationship.destination_id == cls.id,
-        Relationship.source_type == Audit.__name__,
-    ).join(Audit, Relationship.source_id == Audit.id).filter(
-        predicate(Audit.slug)
-    ).exists()
+  In case RelationshipAttr changed
+  """
+  source_query = db.session.query(Relationship.source_id).filter(
+      Relationship.source_type == "Assessment",
+      Relationship.id == relationship_attr.relationship_id
+  )
+  dest_query = db.session.query(Relationship.destination_id).filter(
+      Relationship.destination_type == "Assessment",
+      Relationship.id == relationship_attr.relationship_id
+  )
+  resulting_subquery = source_query.union(dest_query)
+  return Assessment.query.filter(Assessment.id.in_(resulting_subquery)).all()
 
 
-class Assessment(statusable.Statusable, AuditRelationship,
+class Assessment(Roleable, statusable.Statusable, AuditRelationship,
                  AutoStatusChangeable, Assignable, HasObjectState, TestPlanned,
-                 CustomAttributable, EvidenceURL, Commentable, Personable,
-                 reminderable.Reminderable, Timeboxed, Relatable,
+                 CustomAttributable, PublicDocumentable, Commentable,
+                 Personable, reminderable.Reminderable, Timeboxed, Relatable,
                  WithSimilarityScore, FinishedDate, VerifiedDate,
-                 ValidateOnComplete, BusinessObject, db.Model):
+                 ValidateOnComplete, Notifiable, WithAction, BusinessObject,
+                 labeled.Labeled, Indexed, db.Model):
   """Class representing Assessment.
 
   Assessment is an object representing an individual assessment performed on
@@ -84,7 +74,23 @@ class Assessment(statusable.Statusable, AuditRelationship,
   __tablename__ = 'assessments'
   _title_uniqueness = False
 
+  REWORK_NEEDED = u"Rework Needed"
+  NOT_DONE_STATES = statusable.Statusable.NOT_DONE_STATES | {REWORK_NEEDED, }
+  VALID_STATES = tuple(NOT_DONE_STATES | statusable.Statusable.DONE_STATES)
+
   ASSIGNEE_TYPES = (u"Creator", u"Assessor", u"Verifier")
+
+  class Labels(object):  # pylint: disable=too-few-public-methods
+    """Choices for label enum."""
+    AUDITOR_PULLS_EVIDENCE = u'Auditor pulls evidence'
+    FOLLOWUP = u'Followup'
+    NEEDS_REWORK = u'Needs Rework'
+    NEEDS_DISCUSSION = u'Needs Discussion'
+
+  POSSIBLE_LABELS = [Labels.AUDITOR_PULLS_EVIDENCE,
+                     Labels.FOLLOWUP,
+                     Labels.NEEDS_REWORK,
+                     Labels.NEEDS_DISCUSSION]
 
   REMINDERABLE_HANDLERS = {
       "statusToPerson": {
@@ -98,11 +104,19 @@ class Assessment(statusable.Statusable, AuditRelationship,
       }
   }
 
-  design = deferred(db.Column(db.String), "Assessment")
-  operationally = deferred(db.Column(db.String), "Assessment")
+  design = deferred(db.Column(db.String, nullable=False, default=""),
+                    "Assessment")
+  operationally = deferred(db.Column(db.String, nullable=False, default=""),
+                           "Assessment")
+  audit_id = deferred(
+      db.Column(db.Integer, db.ForeignKey('audits.id'), nullable=False),
+      'Assessment')
+  assessment_type = deferred(
+      db.Column(db.String, nullable=False, server_default="Control"),
+      "Assessment")
 
   @declared_attr
-  def object_level_definitions(self):
+  def object_level_definitions(cls):  # pylint: disable=no-self-argument
     """Set up a backref so that we can create an object level custom
        attribute definition without the need to do a flush to get the
        assessment id.
@@ -112,7 +126,7 @@ class Assessment(statusable.Statusable, AuditRelationship,
     return db.relationship(
         'CustomAttributeDefinition',
         primaryjoin=lambda: and_(
-            remote(CustomAttributeDefinition.definition_id) == Assessment.id,
+            remote(CustomAttributeDefinition.definition_id) == cls.id,
             remote(CustomAttributeDefinition.definition_type) == "assessment"),
         foreign_keys=[
             CustomAttributeDefinition.definition_id,
@@ -122,7 +136,6 @@ class Assessment(statusable.Statusable, AuditRelationship,
         cascade='all, delete-orphan')
 
   object = {}  # we add this for the sake of client side error checking
-  audit = {}
 
   VALID_CONCLUSIONS = frozenset([
       "Effective",
@@ -132,72 +145,144 @@ class Assessment(statusable.Statusable, AuditRelationship,
   ])
 
   # REST properties
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'design',
       'operationally',
-      PublishOnly('audit'),
-      PublishOnly('object')
+      'audit',
+      'assessment_type',
+      reflection.Attribute('archived', create=False, update=False),
+      reflection.Attribute('object', create=False, update=False),
+  )
+
+  _fulltext_attrs = [
+      'archived',
+      'design',
+      'operationally',
+      MultipleSubpropertyFullTextAttr('related_assessors', 'assessors',
+                                      ['email', 'name']),
+      MultipleSubpropertyFullTextAttr('related_creators', 'creators',
+                                      ['email', 'name']),
+      MultipleSubpropertyFullTextAttr('related_verifiers', 'verifiers',
+                                      ['email', 'name']),
   ]
 
+  @classmethod
+  def indexed_query(cls):
+    query = super(Assessment, cls).indexed_query()
+    return query.options(
+        orm.Load(cls).undefer_group(
+            "Assessment_complete",
+        ),
+        orm.Load(cls).joinedload(
+            "audit"
+        ).undefer_group(
+            "Audit_complete",
+        ),
+    )
+
   _tracked_attrs = {
-      'contact_id',
       'description',
       'design',
       'notes',
       'operationally',
-      'reference_url',
-      'secondary_contact_id',
       'test_plan',
       'title',
-      'url',
       'start_date',
       'end_date'
   }
 
   _aliases = {
       "owners": None,
-      "assessment_object": {
-          "display_name": "Object",
-          "mandatory": True,
-          "ignore_on_update": True,
-          "filter_by": "_ignore_filter",
-          "type": reflection.AttributeInfo.Type.MAPPING,
-          "description": ("A single object that will be mapped to the audit.\n"
-                          "Example:\n\nControl: Control-slug-1\n"
-                          "Market : MARKET-55"),
-      },
       "assessment_template": {
           "display_name": "Template",
           "ignore_on_update": True,
           "filter_by": "_ignore_filter",
           "type": reflection.AttributeInfo.Type.MAPPING,
       },
-      "url": "Assessment URL",
+      "assessment_type": {
+          "display_name": "Assessment Type",
+          "mandatory": False,
+      },
       "design": "Conclusion: Design",
       "operationally": "Conclusion: Operation",
       "related_creators": {
-          "display_name": "Creator",
+          "display_name": "Creators",
           "mandatory": True,
-          "filter_by": "_filter_by_related_creators",
           "type": reflection.AttributeInfo.Type.MAPPING,
       },
       "related_assessors": {
-          "display_name": "Assessor",
+          "display_name": "Assignees",
           "mandatory": True,
-          "filter_by": "_filter_by_related_assessors",
           "type": reflection.AttributeInfo.Type.MAPPING,
       },
       "related_verifiers": {
-          "display_name": "Verifier",
-          "filter_by": "_filter_by_related_verifiers",
+          "display_name": "Verifiers",
           "type": reflection.AttributeInfo.Type.MAPPING,
+      },
+      "archived": {
+          "display_name": "Archived",
+          "mandatory": False,
+          "ignore_on_update": True,
+          "view_only": True,
+      },
+      "test_plan": "Assessment Procedure",
+      # Currently we decided to have 'Due Date' alias for start_date,
+      # but it can be changed in future
+      "start_date": "Due Date",
+      "status": {
+          "display_name": "State",
+          "mandatory": False,
+          "description": "Options are:\n{}".format('\n'.join(VALID_STATES))
       },
   }
 
-  similarity_options = similarity_options_module.ASSESSMENT
+  AUTO_REINDEX_RULES = [
+      ReindexRule("RelationshipAttr", reindex_by_relationship_attr)
+  ]
+
+  similarity_options = {
+      "relevant_types": {
+          "Objective": {"weight": 2},
+          "Control": {"weight": 2},
+      },
+      "threshold": 1,
+  }
+
+  @simple_property
+  def archived(self):
+    return self.audit.archived if self.audit else False
+
+  @property
+  def assessors(self):
+    """Get the list of assessor assignees"""
+    return self.assignees_by_type.get("Assessor", [])
+
+  @property
+  def creators(self):
+    """Get the list of creator assignees"""
+    return self.assignees_by_type.get("Creator", [])
+
+  @property
+  def verifiers(self):
+    """Get the list of verifier assignees"""
+    return self.assignees_by_type.get("Verifier", [])
 
   def validate_conclusion(self, value):
     return value if value in self.VALID_CONCLUSIONS else ""
+
+  @validates("status")
+  def validate_status(self, key, value):
+    value = super(Assessment, self).validate_status(key, value)
+    # pylint: disable=unused-argument
+    if self.status == value:
+      return value
+    if self.status == self.REWORK_NEEDED:
+      valid_states = [self.DONE_STATE, self.FINAL_STATE]
+      if value not in valid_states:
+        raise ValueError("Assessment in `Rework Needed` "
+                         "state can be only moved to: [{}]".format(
+                             ",".join(valid_states)))
+    return value
 
   @validates("operationally")
   def validate_opperationally(self, key, value):
@@ -209,21 +294,18 @@ class Assessment(statusable.Statusable, AuditRelationship,
     # pylint: disable=unused-argument
     return self.validate_conclusion(value)
 
-  @classmethod
-  def _filter_by_related_creators(cls, predicate):
-    return cls._get_relate_filter(predicate, "Creator")
-
-  @classmethod
-  def _filter_by_related_assessors(cls, predicate):
-    return cls._get_relate_filter(predicate, "Assessor")
-
-  @classmethod
-  def _filter_by_related_verifiers(cls, predicate):
-    return cls._get_relate_filter(predicate, "Verifier")
+  @validates("assessment_type")
+  def validate_assessment_type(self, key, value):
+    """Validate assessment type to be the same as existing model name"""
+    # pylint: disable=unused-argument
+    # pylint: disable=no-self-use
+    from ggrc.snapshotter.rules import Types
+    if value and value not in Types.all:
+      raise ValueError(
+          "Assessment type '{}' is not snapshotable".format(value)
+      )
+    return value
 
   @classmethod
   def _ignore_filter(cls, _):
     return None
-
-
-track_state_for_class(Assessment)

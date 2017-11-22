@@ -1,5 +1,5 @@
 /*!
-  Copyright (C) 2016 Google Inc., authors, and contributors <see AUTHORS file>
+  Copyright (C) 2017 Google Inc., authors, and contributors <see AUTHORS file>
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -187,6 +187,128 @@ describe('GGRC.Components.peopleGroup', function () {
 
          expect(result).toEqual([]);
        });
+  });
+
+  describe('remove_role() method', function () {
+    var removeRole;
+    var personMock;
+    var scope;
+    var el;
+    var result;
+    var instance;
+
+    beforeEach(function () {
+      result = {
+        relationship: {
+          attrs: new can.Map(),
+          destroy: function () {},
+          save: function () {}
+        }
+      };
+      instance = {
+        refresh: jasmine.createSpy()
+      };
+      scope = new can.Map({
+        type: 'Verifier',
+        instance: instance,
+        deferred_remove_role: jasmine.createSpy(),
+        get_roles: function () {
+          return can.Deferred().resolve(result);
+        },
+        enabledEdit: true,
+        confirmEdit: function () {
+          if (scope.attr('enabledEdit')) {
+            return can.Deferred().resolve();
+          }
+          return can.Deferred().reject();
+        }
+      });
+      instance = scope.attr('instance');
+      removeRole = Component.prototype.scope.remove_role.bind(scope);
+      personMock = {
+        name: 'person'
+      };
+      el = $('<li><div class="person-tooltip-trigger">DIV</div></li>');
+      spyOn(CMS.Models.Person, 'findInCacheById')
+        .and.returnValue(personMock);
+      spyOn(result.relationship, 'destroy')
+        .and.returnValue(can.Deferred().resolve());
+      spyOn(result.relationship, 'save')
+        .and.returnValue(can.Deferred().resolve());
+    });
+    it('removes class .person-tooltip-trigger', function () {
+      $('body').append(el);
+      scope.attr('deferred', true);
+      removeRole({}, el, {});
+      expect($(el).closest('li').find('.person-tooltip-trigger').length)
+        .toEqual(0);
+      $('body').html('');
+    });
+    it('adds class "hidden" to event element', function () {
+      $('body').append(el);
+      scope.attr('deferred', true);
+      removeRole({}, el, {});
+      expect($(el).hasClass('hidden')).toEqual(true);
+      $('body').html('');
+    });
+    it('calls deferred_remove_role if deferred is true', function () {
+      scope.attr('deferred', true);
+      removeRole({}, el, {});
+      expect(scope.deferred_remove_role)
+        .toHaveBeenCalledWith(personMock, 'Verifier');
+    });
+    it('destroys relationship if it has only removing role', function () {
+      scope.attr('deferred', false);
+      result.roles = ['Verifier'];
+      removeRole({}, el, {});
+      expect(result.relationship.destroy)
+        .toHaveBeenCalled();
+    });
+    it('calls refresh of instance if relationship has only removing role',
+      function () {
+        scope.attr('deferred', false);
+        result.roles = ['Verifier'];
+        removeRole({}, el, {});
+        expect(instance.refresh)
+          .toHaveBeenCalled();
+      });
+    it('save relationship if it has multiple roles', function () {
+      scope.attr('deferred', false);
+      result.roles = ['Verifier', 'Assessor', 'Creator'];
+      removeRole({}, el, {});
+      expect(result.relationship.save)
+        .toHaveBeenCalled();
+    });
+    it('adds joined roles to relationship.attrs.AssigneeType' +
+    ' if relationship has multiple roles', function () {
+      scope.attr('deferred', false);
+      result.roles = ['Verifier', 'Assessor', 'Creator'];
+      removeRole({}, el, {});
+      expect(result.relationship.attrs.attr('AssigneeType'))
+        .toEqual('Assessor,Creator');
+    });
+    it('calls refresh of instance if relationship has multiple roles',
+    function () {
+      scope.attr('deferred', false);
+      result.roles = ['Verifier', 'Assessor', 'Creator'];
+      removeRole({}, el, {});
+      expect(instance.refresh)
+        .toHaveBeenCalled();
+    });
+    it('relationship was not saved if editing was not confirmed', function () {
+      scope.attr('enabledEdit', false);
+      removeRole({}, el, {});
+      expect(result.relationship.save)
+        .not.toHaveBeenCalled();
+    });
+    it('does nothing if relationship is undefined', function () {
+      function foo() {
+        result = {};
+        scope.attr('deferred', false);
+        removeRole({}, el, {});
+      }
+      expect(foo).not.toThrowError(TypeError);
+    });
   });
 
   describe('deferred_add_role() method', function () {
@@ -451,5 +573,57 @@ describe('GGRC.Components.peopleGroup', function () {
            }
          );
        });
+  });
+  describe('enableEdit() method', function () {
+    var enableEdit;
+    var scope;
+    var event;
+
+    beforeEach(function () {
+      scope = new can.Map({
+        confirmEdit: function () {
+          if (scope.attr('enabledEdit')) {
+            return can.Deferred().resolve();
+          }
+          return can.Deferred().reject();
+        }
+      });
+      enableEdit = Component.prototype.scope.enableEdit.bind(scope);
+      event = $.Event('click');
+    });
+
+    it('isEdit should be truthy when editing was confirmed', function () {
+      var result;
+      scope.attr('enabledEdit', true);
+      enableEdit(scope, {}, event);
+      result = scope.attr('isEdit');
+      expect(result).toBeTruthy();
+    });
+
+    it('isEdit should be falsy when editing was confirmed', function () {
+      var result;
+      scope.attr('enabledEdit', false);
+      enableEdit(scope, {}, event);
+      result = scope.attr('isEdit');
+      expect(result).toBeFalsy();
+    });
+  });
+  describe('disableEdit() method', function () {
+    var disableEdit;
+    var scope;
+
+    beforeEach(function () {
+      scope = new can.Map({
+        isEdit: false
+      });
+      disableEdit = Component.prototype.scope.disableEdit.bind(scope);
+    });
+
+    it('isEdit should be falsy', function () {
+      var result;
+      disableEdit();
+      result = scope.attr('isEdit');
+      expect(result).toBeFalsy();
+    });
   });
 });

@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 
@@ -12,18 +12,24 @@ from collections import defaultdict
 from datetime import date
 from datetime import datetime
 from logging import getLogger
+from operator import itemgetter
 
-from sqlalchemy import and_
+from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.expression import true
 from werkzeug.exceptions import Forbidden
 from google.appengine.api import mail
 
 from ggrc import db
 from ggrc import extensions
 from ggrc import settings
+from ggrc.models import Person
 from ggrc.models import Notification
-from ggrc.models import NotificationConfig
 from ggrc.rbac import permissions
-from ggrc.utils import merge_dict
+from ggrc.utils import DATE_FORMAT_US, merge_dict
+
+from ggrc_workflows.notification.data_handler import (
+    cycle_tasks_cache, deleted_task_rels_cache, get_cycle_task_data
+)
 
 
 # pylint: disable=invalid-name
@@ -49,7 +55,7 @@ class Services(object):
 
     Args:
       name: Name of an object for which we want to get a service function, such
-        as "Request", "CycleTask", "Assessment", etc.
+        as "CycleTask", "Assessment", etc.
 
     Returns:
       callable: A function that takes a notification and returns a data dict
@@ -63,7 +69,7 @@ class Services(object):
     return cls.services[name]
 
   @classmethod
-  def call_service(cls, notif):
+  def call_service(cls, notif, **kwargs):
     """Call data handler service for the object in the notification.
 
     Args:
@@ -74,10 +80,20 @@ class Services(object):
       dict: Result of the data handler for the object in the notification.
     """
     service = cls.get_service_function(notif.object_type)
+
+    if service is get_cycle_task_data:
+      return service(
+          notif,
+          tasks_cache=kwargs.get("tasks_cache"),
+          del_rels_cache=kwargs.get('del_rels_cache')
+      )
+
     return service(notif)
 
 
-def get_filter_data(notification):
+def get_filter_data(
+    notification, people_cache, tasks_cache=None, del_rels_cache=None
+):
   """Get filtered notification data.
 
   This function gets notification data for all users who should receive it. A
@@ -88,16 +104,21 @@ def get_filter_data(notification):
   Args:
     notification (Notification): Notification object for which we want to get
       data.
+    tasks_cache (dict): prefetched CycleTaskGroupObjectTask instances
+      accessible by their ID as a key
+    del_rels_cache (dict): prefetched Revision instances representing the
+      relationships to Tasks that were deleted grouped by task ID as a key
 
   Returns:
     dict: dictionary containing notification data for all users who should
       receive it, according to their notification settings.
   """
   result = {}
-  data = Services.call_service(notification)
+  data = Services.call_service(
+      notification, tasks_cache=tasks_cache, del_rels_cache=del_rels_cache)
 
   for user, user_data in data.iteritems():
-    if should_receive(notification, user_data):
+    if should_receive(notification, user_data, people_cache):
       result[user] = user_data
   return result
 
@@ -119,15 +140,45 @@ def get_notification_data(notifications):
   if not notifications:
     return {}
   aggregate_data = {}
+  people_cache = {}
+
+  tasks_cache = cycle_tasks_cache(notifications)
+  deleted_rels_cache = deleted_task_rels_cache(tasks_cache.keys())
 
   for notification in notifications:
-    filtered_data = get_filter_data(notification)
+    filtered_data = get_filter_data(
+        notification, people_cache, tasks_cache=tasks_cache,
+        del_rels_cache=deleted_rels_cache)
     aggregate_data = merge_dict(aggregate_data, filtered_data)
 
   # Remove notifications for objects without a contact (such as task groups)
   aggregate_data.pop("", None)
 
+  sort_comments(aggregate_data)
+
   return aggregate_data
+
+
+def sort_comments(notif_data):
+  """Inline sort comment notifications by comment creation times.
+
+  Comment notifications dictionaries are converted to sorted lists in the
+  process.
+
+  Args:
+    notif_data: Dictionary containing aggregated notification data for a single
+      day.
+  Returns:
+    None
+  """
+  for user_notifs in notif_data.itervalues():
+    comment_notifs = user_notifs.get("comment_created", {})
+
+    for parent_obj_info, comments in comment_notifs.iteritems():
+      comments_as_list = sorted(
+          comments.itervalues(), key=itemgetter("created_at"), reverse=True)
+      # modifying a value for a given existing key is fine...
+      comment_notifs[parent_obj_info] = comments_as_list
 
 
 def get_pending_notifications():
@@ -141,7 +192,8 @@ def get_pending_notifications():
       and corresponding data for those notifications.
   """
   notifications = db.session.query(Notification).filter(
-      Notification.sent_at.is_(None)).all()
+      (Notification.sent_at.is_(None)) | (Notification.repeating == true())
+  ).all()
 
   notif_by_day = defaultdict(list)
   for notification in notifications:
@@ -165,13 +217,14 @@ def get_daily_notifications():
       and corresponding data for those notifications.
   """
   notifications = db.session.query(Notification).filter(
-      and_(Notification.send_on <= datetime.today(),
-           Notification.sent_at.is_(None)
-           )).all()
+      (Notification.send_on <= datetime.today()) &
+      ((Notification.sent_at.is_(None)) | (Notification.repeating == true()))
+  ).all()
+
   return notifications, get_notification_data(notifications)
 
 
-def should_receive(notif, user_data):
+def should_receive(notif, user_data, people_cache):
   """Check if a user should receive a notification or not.
 
   Args:
@@ -183,8 +236,23 @@ def should_receive(notif, user_data):
   """
   force_notif = user_data.get("force_notifications", {}).get(notif.id, False)
   person_id = user_data["user"]["id"]
+  # The person does not exist
+  if person_id == -1:
+    return False
+  if person_id in people_cache:
+    person = people_cache[person_id]
+  else:
+    person = db.session.query(Person).options(
+        joinedload('user_roles').joinedload('role'),
+        joinedload('notification_configs')
+    ).filter(Person.id == person_id).first()
+    people_cache[person_id] = person
 
-  def is_enabled(notif_type):
+  # If the user has no access we should not send any emails
+  if person.system_wide_role == "No Access":
+    return False
+
+  def is_enabled(notif_type, person):
     """Check user notification settings.
 
     Args:
@@ -195,16 +263,16 @@ def should_receive(notif, user_data):
       Boolean based on what settings users has stored or what the default
       setting is for the given notification.
     """
-    result = NotificationConfig.query.filter(
-        and_(NotificationConfig.person_id == person_id,
-             NotificationConfig.notif_type == notif_type))
-    if result.count() == 0:
+
+    notification_configs = [nc for nc in person.notification_configs
+                            if nc.notif_type == notif_type]
+    if not notification_configs:
       # If we have no results, we need to use the default value, which is
       # true for digest emails.
       return notif_type == "Email_Digest"
-    return result.one().enable_flag
+    return notification_configs[0].enable_flag
 
-  has_digest = force_notif or is_enabled("Email_Digest")
+  has_digest = force_notif or is_enabled("Email_Digest", person)
 
   return has_digest
 
@@ -218,7 +286,7 @@ def send_daily_digest_notifications():
   # pylint: disable=invalid-name
   notif_list, notif_data = get_daily_notifications()
   sent_emails = []
-  subject = "gGRC daily digest for {}".format(date.today().strftime("%b %d"))
+  subject = "GGRC daily digest for {}".format(date.today().strftime("%b %d"))
   for user_email, data in notif_data.iteritems():
     data = modify_data(data)
     email_body = settings.EMAIL_DIGEST.render(digest=data)
@@ -321,7 +389,8 @@ def send_email(user_email, subject, body):
 def modify_data(data):
   """Modify notification data dictionary.
 
-  For easier use in templates, it joins the due_in and due today fields
+  For easier use in templates, it computes/aggregates some additional
+  notification data.
   together.
 
   Args:
@@ -331,18 +400,13 @@ def modify_data(data):
     dict: the received dict with some additional fields for easier traversal
       in the notification template.
   """
-
-  data["due_soon"] = {}
-  if "due_in" in data:
-    data["due_soon"].update(data["due_in"])
-  if "due_today" in data:
-    data["due_soon"].update(data["due_today"])
-
   # combine "my_tasks" from multiple cycles
   data["cycle_started_tasks"] = {}
-  if "cycle_started" in data:
-    for cycle in data["cycle_started"].values():
+  if "cycle_data" in data:
+    for cycle in data["cycle_data"].values():
       if "my_tasks" in cycle:
         data["cycle_started_tasks"].update(cycle["my_tasks"])
+
+  data["DATE_FORMAT"] = DATE_FORMAT_US
 
   return data

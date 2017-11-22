@@ -1,75 +1,86 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+"""Modals for create objects."""
 
-"""Models for LHN modals when creating new objects"""
-
-from lib import base
-from lib import decorator
+from lib import base, decorator
 from lib.constants import locator
 from lib.page.modal import base as modal_base
+from lib.utils import selenium_utils
 
 
-class _CreateNewObjectModal(modal_base.BaseModal):
-  """Base create modal model"""
-  _locator_button_add_another = locator.ModalCreateNewObject \
-      .BUTTON_SAVE_AND_ADD_ANOTHER
+class CreateNewObjectModal(modal_base.BaseModal):
+  """Modal for create objects."""
+  _locators = locator.ModalCreateNewObject
 
   def __init__(self, driver):
-    super(_CreateNewObjectModal, self).__init__(driver)
-    self.button_save_and_add_another = base.Button(
-        driver, self._locator_button_add_another)
+    super(CreateNewObjectModal, self).__init__(driver)
 
   def save_and_add_other(self):
-    """Saves this objects and opens a new modal"""
-    self.button_save_and_add_another.click()
+    """Create object and open new Create modal."""
+    base.Button(self._driver,
+                self._locators.BUTTON_SAVE_AND_ADD_ANOTHER).click()
+    selenium_utils.get_when_invisible(
+        self._driver, self._locators.BUTTON_SAVE_AND_ADD_ANOTHER)
     return self.__class__(self._driver)
 
   @decorator.wait_for_redirect
   @decorator.handle_alert
   def save_and_close(self):
-    """Saves this object"""
+    """Create object and close Creation modal."""
     self.button_save_and_close.click()
+    selenium_utils.wait_until_not_present(
+        self._driver, self._locator_button_save)
 
 
-class Programs(modal_base.ProgramsModal, _CreateNewObjectModal):
-  """Class representing a program modal"""
+class ProgramsCreate(modal_base.ProgramsModal, CreateNewObjectModal):
+  # pylint: disable=abstract-method
+  """Programs create modal."""
 
 
-class Controls(modal_base.ControlsModal, _CreateNewObjectModal):
-  """Class representing a control modal"""
+class ControlsCreate(modal_base.ControlsModal, CreateNewObjectModal):
+  """Controls create modal."""
 
 
-class OrgGroups(modal_base.OrgGroupsModal, _CreateNewObjectModal):
-  """Class representing an org group modal"""
+class ObjectivesCreate(modal_base.ObjectivesModal, CreateNewObjectModal):
+  """Objectives create modal."""
 
 
-class Risks(modal_base.RisksModal, _CreateNewObjectModal):
-  """Class representing a risk modal"""
+class OrgGroupsCreate(modal_base.OrgGroupsModal, CreateNewObjectModal):
+  """Org Groups create modal."""
 
 
-class Requests(modal_base.RequestsModal, _CreateNewObjectModal):
-  """Class representing an request modal"""
+class RisksCreate(modal_base.RisksModal, CreateNewObjectModal):
+  """Risks create modal."""
 
 
-class Issues(modal_base.IssuesModal, _CreateNewObjectModal):
-  """Class representing an issue modal"""
+class IssuesCreate(modal_base.IssuesModal, CreateNewObjectModal):
+  """Issues create modal."""
 
 
-class Processes(modal_base.ProcessesModal, _CreateNewObjectModal):
-  """Class representing a process modal"""
+class ProcessesCreate(modal_base.ProcessesModal, CreateNewObjectModal):
+  """Processes create modal."""
 
 
-class DataAssets(modal_base.DataAssetsModal, _CreateNewObjectModal):
-  """Class representing a Data Assets modal"""
+class DataAssetsCreate(modal_base.DataAssetsModal, CreateNewObjectModal):
+  """Data Assets create modal."""
 
 
-class Systems(modal_base.SystemsModal, _CreateNewObjectModal):
-  """Class representing a system modal"""
+class SystemsCreate(modal_base.SystemsModal, CreateNewObjectModal):
+  """Systems create modal."""
 
 
-class Products(modal_base.ProductsModal, _CreateNewObjectModal):
-  """Class representing a product modal"""
+class ProductsCreate(modal_base.ProductsModal, CreateNewObjectModal):
+  """Products create modal."""
 
 
-class Projects(modal_base.ProjectsModal, _CreateNewObjectModal):
-  """Class representing a process modal"""
+class ProjectsCreate(modal_base.ProjectsModal, CreateNewObjectModal):
+  """Projects create modal."""
+
+
+class AssessmentTemplatesCreate(modal_base.AsmtTmplModal,
+                                CreateNewObjectModal):
+  """Assessment Templates create modal."""
+
+
+class AssessmentsCreate(modal_base.AsmtsModal, CreateNewObjectModal):
+  """Assessments create modal."""

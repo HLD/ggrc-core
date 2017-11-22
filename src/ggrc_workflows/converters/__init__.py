@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """ Module for handling import and export of all workflow models """
@@ -22,4 +22,7 @@ EXPORTABLE = {
     "cycle_task_group_object_task": models.CycleTaskGroupObjectTask,
     "cycle task group object task": models.CycleTaskGroupObjectTask,
     "cycletaskgroupobjecttask": models.CycleTaskGroupObjectTask,
+    "cycle task": models.CycleTaskGroupObjectTask,
+    "cycletask": models.CycleTaskGroupObjectTask,
+    "cycle_task": models.CycleTaskGroupObjectTask,
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -94,19 +94,19 @@
 
 // progress bar placeholder colors
 %bar-finish {
-  background: $lightBlue;
+  background: $status-completed;
 }
 %bar-verify {
-  background: $lightGreen;
+  background: $status-verified;
 }
 %bar-progress {
-  background: $orange;
+  background: $status-inprogress;
 }
 %bar-pending {
-  background: $gray;
+  background: $status-draft;
 }
-%bar-warning {
-  background: $red;
+%bar-decline {
+  background: $status-declined;
 }
 
 // status label placeholder colors

@@ -1,5 +1,7 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+
+import unittest
 
 from sqlalchemy import and_
 from sqlalchemy import or_
@@ -9,14 +11,14 @@ from ggrc.models import OrgGroup
 from ggrc.models import Product
 from ggrc.models import Relationship
 from ggrc.converters import errors
-from integration.ggrc.converters import TestCase
+from integration.ggrc import TestCase
 from integration.ggrc.generator import ObjectGenerator
 
 
 class TestCsvImport(TestCase):
 
   def setUp(self):
-    TestCase.setUp(self)
+    super(TestCsvImport, self).setUp()
     self.generator = ObjectGenerator()
     self.client.get("/login")
 
@@ -52,6 +54,7 @@ class TestCsvImport(TestCase):
     self.assertEqual(Product.query.count(), 5)
 
   def test_multi_basic_policy_orggroup_product_with_warnings(self):
+    """Test multi basic policy orggroup product with warnings"""
     filename = "multi_basic_policy_orggroup_product_with_warnings.csv"
     response_json = self.import_file(filename)
 
@@ -82,11 +85,11 @@ class TestCsvImport(TestCase):
         errors.DUPLICATE_VALUE_IN_CSV.format(
             line_list="21, 26, 27", column_name="Code", value="pro 1",
             s="s", ignore_lines="26, 27"),
-        errors.OWNER_MISSING.format(line=26, column_name="Owner"),
-        errors.MISSING_COLUMN.format(line=13, column_names="Owner", s=""),
-        errors.MISSING_COLUMN.format(line=14, column_names="Owner", s=""),
-        errors.MISSING_COLUMN.format(line=15, column_names="Owner", s=""),
-        errors.MISSING_COLUMN.format(line=16, column_names="Owner", s=""),
+        errors.OWNER_MISSING.format(line=26, column_name="Admin"),
+        errors.MISSING_COLUMN.format(line=13, column_names="Admin", s=""),
+        errors.MISSING_COLUMN.format(line=14, column_names="Admin", s=""),
+        errors.MISSING_COLUMN.format(line=15, column_names="Admin", s=""),
+        errors.MISSING_COLUMN.format(line=16, column_names="Admin", s=""),
     ])
 
     self.assertEqual(expected_warnings, set(row_messages))
@@ -128,6 +131,8 @@ class TestCsvImport(TestCase):
     self.assertEqual(get_relationships_for(p1).count(), 3)
     self.assertEqual(get_relationships_for(org1).count(), 5)
 
+  @unittest.skip("unskip when import/export fixed for workflows")
   def test_big_import_with_mappings(self):
+    """Test big import with mappings"""
     response = self.import_file("data_for_export_testing.csv")
     self._check_csv_response(response, {})

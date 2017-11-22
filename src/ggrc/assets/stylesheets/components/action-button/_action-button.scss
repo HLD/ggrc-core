@@ -1,0 +1,288 @@
+/*
+ * Copyright (C) 2017 Google Inc.
+ * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+ */
+
+.action-button {
+  box-sizing: border-box;
+  cursor: pointer;
+  padding: 0 16px;
+  line-height: 22px;
+  text-align: center;
+  display: inline-block;
+  font-size: 11px;
+  text-transform: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  min-width: 52px;
+
+  &[disabled] {
+    opacity: 0.47;
+  }
+}
+
+.create-button {
+  background: $createBtn;
+  color: $white;
+  border-radius: 2px;
+  line-height: 26px;
+
+  &:hover {
+    background: $link;
+    color: $white;
+    text-decoration: none;
+
+    &[disabled] {
+      background: $createBtn;
+    }
+  }
+
+}
+
+.map-button {
+  background: $white;
+  font-weight: normal;
+  border: 1px solid $widgetBorder;
+  color: $black;
+  border-radius: 2px;
+
+  &:hover,
+  &:focus,
+  &:active {
+    border-color: $widgetBorder;
+  }
+}
+
+.btn {
+  background: $white;
+  color: $black;
+  outline: none;
+  border-radius: 2px;
+  font-weight: normal;
+  border: 1px solid transparent;
+  transition: background 0.2s linear;
+  text-shadow: none;
+  box-shadow: none;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &[disabled], &.disabled {
+    opacity: 0.25;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &.btn-red {
+    background: $redBtn;
+    color: $white;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: mix($white, $redBtn, 30%);
+    }
+  }
+
+  &.btn-white, &.btn-gray {
+    border-color: $widgetBorder;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: mix($black, $white, 6%);
+    }
+
+    &:focus {
+     box-shadow: 0 1px 3px 1px rgba(125, 125, 125, 0.2);
+    }
+  }
+
+  &.btn-lightBlue {
+    background: $lightBlueBtn;
+    border-color: $lightBlueBtn;
+    color: $white;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: mix($white, $lightBlueBtn, 30%);
+    }
+  }
+
+  &.btn-green {
+    background: $btnGreen;
+    border-color: $btnGreen;
+    color: $white;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: mix($white, $btnGreen, 30%);
+    }
+  }
+
+  &.btn-darkBlue {
+    background: $createBtn;
+    border-color: $createBtn;
+    color: $white;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: mix($white, $createBtn, 30%);
+    }
+  }
+
+  &.btn-3bbps {
+    border: 1px solid $widgetBorder;
+    align-items: center;
+    display: flex;
+    justify-content: center;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: mix($black, $white, 6%);
+    }
+
+    &.dropdown-toggle {
+      height: 8px;
+      padding-top: 9px;
+      padding-bottom: 9px;
+    }
+
+    >.bubble {
+      width: 7px;
+      height: 7px;
+      display: inline-flex;
+      float: none;
+    }
+  }
+
+  &.btn-link {
+    color: $link;
+    font-size: 12px;
+    font-weight: normal;
+    cursor: pointer;
+    border-color: transparent;
+
+    &[disabled] {
+      opacity: 0.47;
+    }
+
+    &:focus {
+      outline: none;
+    }
+
+    &:hover {
+      color: $darkBlue;
+    }
+
+    .related-assessments &:hover,
+    .related-assessments__tab-container &:hover {
+      text-decoration: underline;
+      color: $blue;
+    }
+
+    &.selected {
+      background: #40c4ff;
+      color: $white;
+      border-radius: 3px;
+    }
+
+    &.btn-link-nopadding {
+      padding-left: 3px;
+      padding-right: 3px;
+    }
+  }
+
+  &.btn-icon {
+    padding: 0 6px;
+    line-height: 26px;
+    border-color: transparent;
+    background: transparent;
+
+    .fa {
+      opacity: 1;
+      line-height: 20px;
+      height: 20px;
+      width: 20px;
+      font-size: 16px;
+      color: #797979;
+
+      &:hover {
+        background: $border-color;
+      }
+    }
+
+    &.btn-primary {
+      .fa {
+        color: $blue;
+
+        &:hover {
+          background: transparent;
+        }
+      }
+    }
+
+    &.btn-icon-sm {
+      line-height: 26px;
+      padding: 0 8px;
+
+      .fa {
+        line-height: 26px;
+        font-size: 16px;
+        height: 26px;
+        width: 26px;
+        border-radius: 2px;
+      }
+
+    }
+
+    &.btn-icon-md {
+      line-height: 26px;
+      padding: 0 8px;
+
+      .fa {
+        line-height: 26px;
+        font-size: 20px;
+        height: 26px;
+        width: 26px;
+        border-radius: 2px;
+      }
+
+    }
+
+    &.btn-icon-lg {
+      line-height: 32px;
+      padding: 0 8px;
+
+      .fa {
+        line-height: 32px;
+        font-size: 28px;
+        height: 32px;
+        width: 34px;
+        border-radius: 2px;
+      }
+    }
+  }
+  &.btn-extra-gray {
+    background: $btnPriority;
+    color: $white;
+    font-weight: normal;
+
+    &:hover {
+      background: lighten($btnPriority, 10%);
+    }
+  }
+
+  &.btn-link, &.btn-link:active, &.btn-icon, &.btn-icon:active {
+    background-color: transparent;
+    background-image: none;
+    box-shadow: none;
+  }
+}

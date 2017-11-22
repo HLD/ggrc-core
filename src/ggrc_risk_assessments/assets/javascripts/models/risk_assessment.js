@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -13,7 +13,7 @@
     root_object: "risk_assessment",
     root_collection: "risk_assessments",
     category: "risk_assessment",
-    mixins: ['ca_update'],
+    mixins: ['ca_update', 'timeboxed'],
     findAll: "GET /api/risk_assessments",
     findOne: "GET /api/risk_assessments/{id}",
     create: "POST /api/risk_assessments",
@@ -24,38 +24,31 @@
       ra_manager: "CMS.Models.Person.stub",
       ra_counsel: "CMS.Models.Person.stub",
       context: "CMS.Models.Context.stub",
-      documents: "CMS.Models.Document.stubs",
       program: "CMS.Models.Program.stub",
       modified_by: "CMS.Models.Person.stub",
-      object_documents: "CMS.Models.ObjectDocument.stubs",
-      custom_attribute_values : "CMS.Models.CustomAttributeValue.stubs",
-      start_date: 'date',
-      end_date: 'date'
+      custom_attribute_values : "CMS.Models.CustomAttributeValue.stubs"
     },
     tree_view_options: {
       attr_list: [
         {attr_title: 'Title', attr_name: 'title'},
         {attr_title: 'Code', attr_name: 'slug'},
-        {attr_title: 'Effective Date', attr_name: 'start_date'},
-        {attr_title: 'Stop Date', attr_name: 'end_date'},
+        {attr_title: 'Start Date', attr_name: 'start_date'},
+        {attr_title: 'Last Deprecated Date', attr_name: 'end_date'},
         {
           attr_title: 'Risk Manager',
           attr_name: 'ra_manager',
-          attr_sort_field: 'ra_manager.name|email'
+          attr_sort_field: 'ra_manager'
         },
         {
           attr_title: 'Risk Counsel',
           attr_name: 'ra_counsel',
-          attr_sort_field: 'ra_counsel.name|email'
+          attr_sort_field: 'ra_counsel'
         }
       ],
-      add_item_view: path + '/tree_add_item.mustache',
-      child_options: [{
-        model: can.Model.Cacheable,
-        mapping: 'related_objects',
-        show_view: path + '/tree.mustache',
-        draw_children: true
-      }]
+      add_item_view: path + '/tree_add_item.mustache'
+    },
+    sub_tree_view_options: {
+      default_filter: ['Program'],
     },
     init: function () {
       this._super && this._super.apply(this, arguments);

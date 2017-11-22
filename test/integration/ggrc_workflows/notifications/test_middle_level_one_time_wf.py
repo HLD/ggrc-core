@@ -1,14 +1,14 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 import textwrap
-from integration.ggrc import TestCase
-from freezegun import freeze_time
 from datetime import date, datetime
+from freezegun import freeze_time
 
 from ggrc import db
 from ggrc.notifications import common
 from ggrc.models import Notification
+from integration.ggrc import TestCase
 from integration.ggrc_workflows.generator import WorkflowsGenerator
 from integration.ggrc.api_helper import Api
 from integration.ggrc.generator import ObjectGenerator
@@ -21,7 +21,7 @@ class TestOneTimeWorkflowNotification(TestCase):
   """
 
   def setUp(self):
-    TestCase.setUp(self)
+    super(TestOneTimeWorkflowNotification, self).setUp()
     self.api = Api()
     self.wf_generator = WorkflowsGenerator()
     self.object_generator = ObjectGenerator()
@@ -59,7 +59,6 @@ class TestOneTimeWorkflowNotification(TestCase):
     # setup
     with freeze_time("2015-04-07 03:21:34"):
       wf_response, wf = self.wf_generator.generate_workflow(data={
-          "frequency": "one_time",
           "owners": None,  # owner will be the current user
           "notify_on_change": True,  # force real time updates
           "title": "One-time WF",
@@ -89,10 +88,6 @@ class TestOneTimeWorkflowNotification(TestCase):
     with freeze_time("2015-04-07 03:21:34"):
       cycle_response, cycle = self.wf_generator.generate_cycle(wf)
       self.wf_generator.activate_workflow(wf)
-
-      db.session.add(self.owner1)
-      db.session.add(self.tgassignee1)
-      db.session.add(self.member1)
 
       common.get_daily_notifications()
 

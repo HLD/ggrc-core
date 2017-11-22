@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Mixin for automatic status changes"""
@@ -11,8 +11,6 @@ from sqlalchemy.orm.session import Session
 
 from ggrc import db
 from ggrc.models import relationship
-from ggrc.models import object_document
-from ggrc.services import common
 from ggrc.services import signals
 from ggrc.models.mixins import statusable
 
@@ -29,7 +27,6 @@ class AutoStatusChangeable(object):
 
   FIRST_CLASS_EDIT = ({statusable.Statusable.START_STATE} |
                       statusable.Statusable.DONE_STATES)
-  ASSIGNABLE_EDIT = statusable.Statusable.END_STATES
 
   @staticmethod
   def _date_has_changes(attr):
@@ -93,7 +90,7 @@ class AutoStatusChangeable(object):
     cls.set_handlers(model)
 
   @staticmethod
-  def adjust_status(model, obj):
+  def change_to_progress_state(model, obj):
     """Switches state on object to the PROGRESS_STATE
 
     Args:
@@ -105,7 +102,7 @@ class AutoStatusChangeable(object):
     db.session.add(obj)
 
   @classmethod
-  def handle_first_class_edit(cls, model, obj, rel=None, method=None):
+  def handle_first_class_edit(cls, model, obj, method=None):
     """Handles first class edit
 
     Performs check whether object received first class edit (ordinary edit)
@@ -117,8 +114,6 @@ class AutoStatusChangeable(object):
       model: (db.Model class) Class from which to read FIRST_CLASS_EDIT
         property.
       obj: (db.Model instance) Object on which to perform operations.
-      rel: (Relationship) Relationship object, needed here to maintain equal
-        type signature with handle_person_edit.
       method: (string) HTTP method used that triggered signal
     """
 
@@ -139,53 +134,8 @@ class AutoStatusChangeable(object):
     for obj in session.identity_map.values():
       if (isinstance(obj, AutoStatusChangeable) and
               getattr(obj, '_need_status_reset', False)):
-        cls.adjust_status(type(obj), obj)
+        cls.change_to_progress_state(type(obj), obj)
         delattr(obj, '_need_status_reset')
-
-  @classmethod
-  def handle_person_edit(cls, model, obj, rel, method):
-    """Handles person edit
-
-    Args:
-      model: (db.Model class) Class from which to read ASSIGNABLE_EDIT
-        property.
-      obj: (db.Model instance) Object on which to perform operations.
-      rel: (Relationship) Relationship whose attribute have to be inspected for
-        changes.
-      method: (string) HTTP method used that triggered signal
-    """
-    adjust_state = False
-
-    if method == "POST":
-      # On relationship creation inspect(rel) sometime shows relationship
-      # attributes as unchanged and sometimes as added.
-      # But because POST can only ever be issued for creation, we can use this
-      # as a guarantee that this was an editable event that should adjust
-      # status.
-      unchanged = inspect(rel).attrs.relationship_attrs.history.unchanged
-      added = inspect(rel).attrs.relationship_attrs.history.added
-      attr_changed = ({ra.attr_name for ra in unchanged} |
-                      {ra.attr_name for ra in added})
-    else:
-      # Ensures that we only adjust status for AssigneeType relationship
-      # attribute.
-      added = inspect(rel).attrs.relationship_attrs.history.added
-      deleted = inspect(rel).attrs.relationship_attrs.history.deleted
-      attr_changed = ({ra.attr_name for ra in deleted} |
-                      {ra.attr_name for ra in added})
-
-    if obj.status in model.ASSIGNABLE_EDIT:
-      # When object attributes are added or edited, adjust. If user still has
-      # some other role, operation is considered edit.
-      if "AssigneeType" in attr_changed:
-        adjust_state = True
-
-      # When user has no more roles on an object, relationship is deleted.
-      if method == "DELETE":
-        adjust_state = True
-
-    if adjust_state:
-      cls.adjust_status(model, obj)
 
   @staticmethod
   def _has_custom_attr_changes(obj):
@@ -208,8 +158,9 @@ class AutoStatusChangeable(object):
       return False  # also exits if obj itself is None
 
     histories = (
-        inspect(value).attrs.get("attribute_value").history
+        inspect(value).attrs.get(attr_name).history
         for value in obj.custom_attribute_values
+        for attr_name in ("attribute_value", "attribute_object_id")
     )
 
     for attr_history in histories:
@@ -229,7 +180,7 @@ class AutoStatusChangeable(object):
     Args:
       model: Class on which handlers will be set up.
     """
-    @common.Resource.model_put.connect_via(model)
+    @signals.Restful.model_put.connect_via(model)
     def handle_object_put(sender, obj=None, src=None, service=None):
       """Handles object PUT operation
 
@@ -279,14 +230,14 @@ class AutoStatusChangeable(object):
 
       cls.handle_first_class_edit(model, obj)
 
-    @common.Resource.model_posted.connect_via(relationship.Relationship)
-    @common.Resource.model_put.connect_via(relationship.Relationship)
-    @common.Resource.model_deleted.connect_via(relationship.Relationship)
+    @signals.Restful.model_posted.connect_via(relationship.Relationship)
+    @signals.Restful.model_put.connect_via(relationship.Relationship)
+    @signals.Restful.model_deleted.connect_via(relationship.Relationship)
     def handle_relationship(sender, obj=None, src=None, service=None):
       """Handle creation of relationships that can change object status.
 
-      Adding or removing assigable persons (Assignees, Requesters, Creators,
-      Verifiers, etc.) moves object back to PROGRESS_STATE.
+      Adding or removing assigable persons (Assignees, Creators, Verifiers,
+      etc.) moves object back to PROGRESS_STATE.
 
       Adding evidence moves object back to to PROGRESS_STATE.
 
@@ -303,31 +254,12 @@ class AutoStatusChangeable(object):
 
         handlers = {
             "Document": cls.handle_first_class_edit,
-            "Person": cls.handle_person_edit
+            "Snapshot": cls.handle_first_class_edit,
         }
         for k in handlers.keys():
           if k in endpoints:
-            handlers[k](model, target_object, obj,
-                        method=service.request.method)
+            handlers[k](model, target_object, method=service.request.method)
 
-    @common.Resource.model_posted.connect_via(
-        object_document.ObjectDocument)
-    @common.Resource.model_deleted.connect_via(
-        object_document.ObjectDocument)
-    def handle_objectdocument_post(sender, obj=None, src=None, service=None):
-      """Handles addition and deletion of evidences
-
-      Adding evidence moves object back to PROGRESS_STATE.
-
-      See blinker library documentation for other parameters (all necessary).
-
-      Args:
-        obj: (db.Model instance) Object on which we will perform manipulation.
-      """
-      # pylint: disable=unused-argument,unused-variable
-
-      if obj.documentable.type == model.__name__:
-        cls.handle_first_class_edit(model, obj.documentable)
 
 # pylint: disable=fixme
 # TODO: find a way to listen for updates only for classes that use

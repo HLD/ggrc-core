@@ -1,36 +1,12 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
-$icon-color-normal: #999;
-$icon-color-empty: #FFBE00;
-$icon-color-invalid: red;
-$icon-color-dark: #7c7c7c;
-$light-grey-background: #f3f3f3;
-$icon-color-valid: #1d8d15;
-$icon-color-hover: #333;
-$border-color: #eee;
-
 .assessment-info-pane {
-  display: flex;
-  align-items: stretch;
-  flex-wrap: wrap;
-
-  .assessment-attributes {
-    flex: 2 2 66%;
-    margin: 8px 22px 8px 0;
-    max-width: 66%;
-  }
 
   .assessment-description {
-    margin: 8px 0 16px;
-  }
-
-  .assessment-control-item {
-    flex: 1 1 50%;
-    max-width: 50%;
-    min-height: 72px;
+    margin: 0 0 12px;
   }
 
   .assessment-controls {
@@ -38,7 +14,19 @@ $border-color: #eee;
     padding: 12px 12px 24px;
     box-sizing: border-box;
     border-radius: 2px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
+
+    .assessment-note {
+      margin-bottom: 5px;
+      min-height: 18px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+
+      .fa {
+        color: $icon-color-dark;
+      }
+    }
 
     .assessment-controls__note {
       display: block;
@@ -47,17 +35,13 @@ $border-color: #eee;
       color: $icon-color-hover;
       padding: 0 28px 8px;
     }
-
-    .attachment-list li {
-      margin: 0;
-      line-height: 18px;
-    }
   }
 
   .assessment-controls__extra-controls {
     display: flex;
     align-items: stretch;
     flex-wrap: wrap;
+    margin-bottom: 10px;
 
     > * {
       position: relative;
@@ -65,6 +49,7 @@ $border-color: #eee;
       padding: 0 16px 0 28px;
       flex: 1 1 50%;
       max-width: 50%;
+      margin: 0 0 10px;
     }
   }
 }
@@ -77,14 +62,7 @@ $border-color: #eee;
 
     ggrc-gdrive-picker-launcher {
       display: inline-block;
-      margin: 4px 0;
-
-      a.btn {
-        background: rgba(0, 0, 0, 0.15);
-        &:hover {
-          background: rgba(0, 0, 0, 0.175);
-        }
-      }
+      margin: 0;
     }
 
     h6 {
@@ -93,35 +71,8 @@ $border-color: #eee;
       text-overflow: ellipsis;
     }
 
-    .pane-header {
-      h6 {
-        margin: 0;
-      }
-      .pane-header__title {
-        line-height: 24px;
-        display: flex;
-
-        h3 {
-          line-height: 24px;
-          margin: 0;
-          box-sizing: border-box;
-          padding: 0 16px 0 0;
-        }
-
-        i.fa {
-          line-height: 24px;
-          width: 24px;
-        }
-
-        .state-value {
-          padding: 0 8px;
-          box-sizing: border-box;
-          min-height: 22px;
-          margin: 0 16px 0 0;
-          line-height: 22px;
-          align-self: center;
-        }
-      }
+    .assessment-attributes-panel {
+      max-width: 720px;
     }
 
     .assessment-controls {
@@ -140,17 +91,9 @@ $border-color: #eee;
         }
       }
       .assessment-controls-toolbar {
-        margin: 8px 6px 0;
+        margin: 8px 6px 0 28px;
         display: flex;
-        justify-content: flex-end;
-
-        .btn-extra-gray {
-          background: rgba(0, 0, 0, 0.15);
-
-          &:hover {
-            background: rgba(0, 0, 0, 0.175);
-          }
-        }
+        justify-content: flex-start;
 
         .ggrc_controllers_quick_form {
           display: flex;
@@ -159,164 +102,141 @@ $border-color: #eee;
 
           > * {
             text-align: center;
-            margin: 0 8px;
+            margin: 0 0 0 12px;
+          }
+
+          .btn-primary {
+            border: 1px solid #0055cc;
           }
         }
       }
     }
   }
 
-  .assessment-summary {
-    flex: 1;
-    margin: 0 0 28px;
-
-    .side-content {
-      margin: 0;
-    }
-
-    h6 {
-      margin: 0;
-      padding: 0 0 8px;
-    }
-  }
-}
-
-.assessment-custom-attributes {
-  display: flex;
-  align-items: stretch;
-  flex-wrap: wrap;
-
-  .ql-container {
-    background: #fff;
+  .conclusion-small-text {
+    line-height: 4px;
   }
 
-  .inline-edit {
-    padding: 0;
-    margin: 0 0 16px;
-  }
-
-  .inline-edit__title {
-    line-height: 22px;
-    margin: 0;
-    box-sizing: border-box;
-    padding: 0 48px 0 4px;
+  .tabs-wrap {
+    margin-top: -28px;
     position: relative;
-    display: flex;
 
-    .fa {
-      width: 24px;
-      text-align: center;
-      line-height: 22px;
-    }
-
-    .inline-edit__title-body {
-      display: flex;
-      max-width: 100%;
-      overflow: hidden;
-      line-height: 22px;
-      box-sizing: border-box;
-      padding: 0 24px 0 0;
-      position: relative;
-
-      .fa {
-        position: absolute;
-        right: 0;
-        top: 0;
-      }
-    }
-
-    &:hover {
-      .inline-edit__extra-controls {
-        .fa {
-          opacity: 1;
-        }
-      }
-    }
-
-    .inline-edit__extra-controls {
-      height: 22px;
+    .attribute-tab-panel-column {
       display: inline-block;
-
-      .fa {
-        float: left;
-        width: 24px;
-        padding: 0;
-        text-align: center;
-        font-size: 12px;
-        color: $icon-color-normal;
-        opacity: 0;
-        cursor: pointer;
-
-        &:hover {
-          opacity: 1;
-        }
-      }
-    }
-  }
-
-  .inline-edit--active {
-    .inline-edit__content--wide {
-      width: auto;
-    }
-  }
-  .inline-edit__controls--edit-mode {
-    background: #fff;
-    box-sizing: border-box;
-    height: 32px;
-    bottom: -33px;
-    line-height: 32px;
-    margin: 0;
-    padding: 0;
-    width: 66px;
-    z-index: 1;
-
-    li {
-      box-sizing: border-box;
-      float: left;
-      width: 32px;
-      line-height: 31px;
-
-      a {
-        display: inline-block;
-        line-height: 31px;
-        width: 32px;
-      }
-    }
-  }
-
-  .inline-edit__content {
-    box-sizing: border-box;
-    width: auto;
-    line-height: 24px;
-    margin-left: 0;
-
-    &:hover {
-      background: #fff;
-    }
-
-    input[type="checkbox"] {
-      float: left;
-      margin: 3px 6px 0 0;
-    }
-    .datepicker__calendar {
-      top: -250px;
-      left: -6px;
-      z-index: 4000;
+      width: 32%;
+      vertical-align: top;
     }
   }
 }
 
-.assessment-url-list__add-btn {
-  position: absolute;
-  top: 1px;
-  cursor: pointer;
-  left: 57px;
+.mapped-controls-info {
+  font-size: 13px;
 
-  .fa {
-    color: $icon-color-dark;
+  &__header-text {
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    flex-wrap: wrap;
+  }
 
-    &:hover {
-      color: $icon-color-hover;
+  &__title {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    margin-right: 8px;
+    font-size: 13px;
+    color: $link;
+  }
+
+  &__title-text {
+    font-size: 16px;
+    color: $infoWidgetHeader;
+  }
+
+  &__title-state {
+    line-height: 18px;
+    font-size: 13px;
+  }
+
+  &__body {
+    collapsible-panel-header {
+      margin: 23px 0;
+
+      .fa {
+        width: auto;
+        margin-right: 12px;
+      }
+    }
+
+    .collapsible-panel-body {
+
+      > .body-inner {
+        padding: 0;
+      }
+
+      h6 {
+        float: none;
+        width: 100%;
+      }
+    }
+
+    .object-list__item {
+      line-height: 18px;
+    }
+
+    .object-list__item:not(:first-child) {
+      padding-top: 24px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .object-list__item-empty {
+      margin: 0 0 20px 0;
+    }
+  }
+
+  &__related-objects {
+    .mapped-related-objects {
+      border-top: 1px solid #e0e0e0;
+    }
+  }
+}
+
+.mapped-object-info {
+  &__title {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  &__title-text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    margin-right: 10px;
+    font-size: 13px;
+    color: $link;
+  }
+
+  &__item {
+    margin: 0 0 20px 0;
+    padding: 0 15px 0 0;
+    box-sizing: border-box;
+  }
+
+  &__attributes {
+    display: flex;
+    flex-wrap: wrap;
+
+    .mapped-object-info__item{
+      flex-basis: 50%;
+    }
+
+    custom-attributes-wrap {
+      width: 100%;
+    }
+
+    .inline-edit__title,
+    .inline-edit__content {
+      padding-left: 0px;
     }
   }
 }

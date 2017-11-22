@@ -1,11 +1,11 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.declarative import declared_attr
 from ggrc.models.mixins import Base
-from ggrc.models.reflection import PublishOnly
+from ggrc.models import reflection
 
 
 class AuditObject(Base, db.Model):
@@ -15,8 +15,6 @@ class AuditObject(Base, db.Model):
       db.Integer, db.ForeignKey('audits.id'), nullable=False)
   auditable_id = db.Column(db.Integer, nullable=False)
   auditable_type = db.Column(db.String, nullable=False)
-  requests = db.relationship(
-      'Request', backref='audit_object')
 
   @property
   def auditable_attr(self):
@@ -41,10 +39,7 @@ class AuditObject(Base, db.Model):
         db.Index('ix_audit_id', 'audit_id'),
     )
 
-  _publish_attrs = [
-      'audit',
-      'auditable',
-  ]
+  _api_attrs = reflection.ApiAttributes('audit', 'auditable')
 
   @classmethod
   def eager_query(cls):
@@ -81,10 +76,10 @@ class Auditable(object):
         cascade='all, delete-orphan',
     )
 
-  _publish_attrs = [
-      PublishOnly('audits'),
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('audits', create=False, update=False),
       'audit_objects',
-  ]
+  )
   _include_links = []
 
   @classmethod

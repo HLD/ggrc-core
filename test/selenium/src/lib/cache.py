@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Module containing various caches"""
@@ -7,11 +7,11 @@ from lib.constants import element
 
 
 def _get_lhn_section_map():
-  """Returns a dictionary with lhn elements that are grouped together
-  into sections
-  Return:
+  """Return dictionary with lhn elements that are grouped together
+ into sections
+ Return:
       dict
-  """
+ """
   members_dct = {}
   member_tpls = (
       (element.Lhn.DIRECTIVES, element.Lhn.DIRECTIVES_MEMBERS),

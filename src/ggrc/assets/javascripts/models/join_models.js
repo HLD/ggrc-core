@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 (function (can, $) {
@@ -101,6 +101,44 @@
     }
   });
 
+  can.Model.Join('CMS.Models.Snapshot', {
+    root_object: 'snapshot',
+    root_collection: 'snapshots',
+    attributes: {
+      context: 'CMS.Models.Context.stub',
+      modified_by: 'CMS.Models.Person.stub',
+      parent: 'CMS.Models.Cacheable.stub'
+    },
+    join_keys: {
+      parent: can.Model.Cacheable,
+      revision: can.Model.Revision
+    },
+    defaults: {
+      parent: null,
+      revision: null
+    },
+    findAll: 'GET /api/snapshots',
+    update: 'PUT /api/snapshots/{id}',
+    child_instance: function (snapshotData) {
+    },
+    snapshot_instance: function (snapshotData) {
+    }
+  }, {
+    reinit: function () {
+      var revision = CMS.Models.Revision.findInCacheById(this.revision_id);
+      this.content = revision.content;
+    },
+    display_name: function () {
+      return '';
+    },
+    title: function () {
+      return '';
+    },
+    description: function () {
+      return '';
+    }
+  });
+
   can.Model.Join('CMS.Models.Relationship', {
     root_object: 'relationship',
     root_collection: 'relationships',
@@ -191,7 +229,8 @@
         console.warn('Duplicated relationship objects', relationshipIds);
       }
       relationships = can.map(relationshipIds, function (id) {
-        return CMS.Models.Relationship.findInCacheById(id);
+        return CMS.Models.Relationship.findInCacheById(id) ||
+          CMS.Models.get_instance('Relationship', id);
       });
       result.resolve(relationships);
       return result.promise();
@@ -214,6 +253,16 @@
               (!this.source.selfLink && this.destination.type))),
         this.destination_id || (this.destination && this.destination.id),
         this.destination) || this.destination);
+    },
+    unmap: function (cascade) {
+      return $.ajax({
+        type: 'DELETE',
+        url: '/api/relationships/' + this.attr('id') +
+          '?cascade=' + cascade
+      })
+      .done(function () {
+        can.trigger(this.constructor, 'destroyed', this);
+      }.bind(this));
     }
   });
 
@@ -340,4 +389,4 @@
       auditable: 'CMS.Models.get_stub'
     }
   }, {});
-})(this.can, this.can.$);
+})(window.can, window.can.$);

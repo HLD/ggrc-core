@@ -1,10 +1,7 @@
-/*!
- Copyright (C) 2016 Google Inc.
+/*
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
-
-// require can.jquery-all
-// require models/cacheable
 
 (function (ns, can) {
   can.Model.Cacheable('CMS.Models.Person', {
@@ -66,25 +63,41 @@
         return ((val && val.trim) ? val.trim() : val).toLowerCase();
       }
     },
+    findInCacheById: function (id) {
+      return this.store[id] || this.cache ? this.cache[id] : null;
+    },
     findInCacheByEmail: function (email) {
       var result = null;
-      var that = this;
-      can.each(Object.keys(this.cache || {}), function (k) {
-        if (that.cache[k].email === email) {
-          result = that.cache[k];
+      var cache = this.store || this.cache || {};
+      can.each(Object.keys(cache), function (k) {
+        if (cache[k].email === email) {
+          result = cache[k];
           return false;
         }
       });
       return result;
     },
     tree_view_options: {
-      show_view: GGRC.mustache_path + '/people/tree.mustache',
-      header_view: GGRC.mustache_path + '/people/tree_header.mustache',
-      footer_view: GGRC.mustache_path + '/base_objects/tree_footer.mustache',
-      add_item_view: GGRC.mustache_path + '/people/tree_add_item.mustache'
+      attr_view: GGRC.mustache_path + '/people/tree-item-attr.mustache',
+      add_item_view: GGRC.mustache_path + '/people/tree_add_item.mustache',
+      attr_list: [{
+        attr_title: 'Name',
+        attr_name: 'title'
+      }, {
+        attr_title: 'Email',
+        attr_name: 'email'
+      }, {
+        attr_title: 'Authorizations',
+        attr_name: 'authorizations'
+      }],
+      display_attr_names: ['title', 'email', 'authorizations'],
+      disable_columns_configuration: true
     },
     list_view_options: {
       find_params: {__sort: 'name,email'}
+    },
+    sub_tree_view_options: {
+      default_filter: ['Program', 'Control', 'Risk', 'Assessment'],
     },
     init: function () {
       var rEmail =
@@ -93,8 +106,21 @@
 
       this.validateNonBlank('email');
       this.validateFormatOf('email', rEmail);
+      this.validateNonBlank('name');
     },
-    getUserRoles: function (instance, person) {
+
+    /**
+     * @description
+     * Retrieves user roles for the person according to
+     * instance or/and specific object contexts
+     *
+     * @param  {Object} instance - Instance object
+     * @param  {CMS.Models.Person} person - Person object
+     * @param  {String} specificObject - Property of instance object
+     * @return {Promise.<Object[]>} - Returns promise with person's user roles
+     */
+
+    getUserRoles: function (instance, person, specificObject) {
       var result = $.Deferred();
       var refreshQueue = new RefreshQueue();
       var userRoles;
@@ -104,24 +130,40 @@
       });
 
       refreshQueue.trigger().then(function (roles) {
+        var object;
+        var objectInstance;
+        var objectContextId;
+
         userRoles = _.filter(roles, function (role) {
           return instance.context && role.context &&
             role.context.id === instance.context.id;
         });
+
+        if (_.isEmpty(userRoles) && !_.isEmpty(specificObject)) {
+          object = _.get(instance, specificObject);
+          objectInstance = _.result(object, 'getInstance');
+          objectContextId = _.get(objectInstance, 'context_id');
+
+          userRoles = _.filter(roles, function (role) {
+            return role.context && role.context.id === objectContextId;
+          });
+        }
+
         result.resolve(userRoles);
       });
       return result.promise();
     },
-    getPersonMappings: function (instance, person, specificOject) {
+    getPersonMappings: function (instance, person, specificObject) {
       var result = $.Deferred();
-      var mappingObject = instance[specificOject];
-      var refreshQueue = new RefreshQueue();
+      var mappingObject = instance[specificObject];
+      var mappingsRQ = new RefreshQueue();
+      var userRolesRQ = new RefreshQueue();
 
       can.each(mappingObject, function (obj) {
-        refreshQueue.enqueue(obj);
+        mappingsRQ.enqueue(obj);
       });
 
-      refreshQueue.trigger().then(function (objects) {
+      mappingsRQ.trigger().then(function (objects) {
         var userRoles;
         var objectPeopleFiltered = _.filter(objects, function (item) {
           return item.person && item.person.id === person.id;
@@ -136,6 +178,12 @@
 
         userRoles = userRoles.concat(objectPeopleFiltered);
 
+        can.each(userRoles, function (obj) {
+          userRolesRQ.enqueue(obj);
+        });
+
+        return userRolesRQ.trigger();
+      }).then(function (userRoles) {
         result.resolve(userRoles);
       });
       return result.promise();
@@ -148,6 +196,19 @@
       return this.name ?
       this.name + '<span class="url-link">' + this.email + '</span>' :
         this.email;
-    }
+    },
+    getWidgetCountForMyWorkPage: function () {
+      let url = `/api/people/${this.attr('id')}/my_work_count`;
+      return $.get(url);
+    },
+    getWidgetCountForAllObjectPage: function () {
+      let url = `/api/people/${this.attr('id')}/all_objects_count`;
+      return $.get(url);
+    },
+    getTasksCount: function () {
+      let url = `/api/people/${this.attr('id')}/task_count`;
+      return $.get(url)
+        .fail(() => console.warn(`Request on '${url}' failed!`));
+    },
   });
 })(window, can);

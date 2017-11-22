@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -8,7 +8,7 @@
   var _CONDITIONS_MAP = {
     contains: function (instance, args) {
       var value = Permission._resolve_permission_variable(args.value);
-      var list_value = instance[args.list_property];
+      var list_value = instance[args.list_property] || [];
       var i;
       for (i = 0; i < list_value.length; i++) {
         if (list_value[i].id == value.id) {
@@ -19,11 +19,15 @@
     },
     is: function (instance, args) {
       var value = Permission._resolve_permission_variable(args.value);
-      var property_value = instance[args.property_name];
-      if (property_value instanceof can.Stub) {
-        property_value = property_value.reify();
-      }
-      return value == property_value;
+      var propertyValue = _.reduce(args.property_name.split('.'),
+        function (obj, key) {
+          var value = obj.attr(key);
+          if (value instanceof can.Stub) {
+            value = value.reify();
+          }
+          return value;
+        }, instance);
+      return value == propertyValue;
     },
     'in': function (instance, args) {
       var value = Permission._resolve_permission_variable(args.value);
@@ -36,6 +40,12 @@
     forbid: function (instance, args, action) {
       var blacklist = args.blacklist[action] || [];
       return blacklist.indexOf(instance.type) < 0;
+    },
+    has_changed: function (instance, args) {
+      return (instance.attr(args.property_name) === args.prevent_if);
+    },
+    has_not_changed: function (instance, args) {
+      return !(instance.attr(args.property_name) === args.prevent_if);
     }
   };
   var permissions_compute = can.compute(GGRC.permissions);
@@ -134,9 +144,8 @@
       }.bind(this);
 
       var action_obj = permissions[action] || {};
-      var instance_type = instance.constructor ?
-                          instance.constructor.shortName :
-                          instance.type;
+      var shortName = instance.constructor && instance.constructor.shortName;
+      var instance_type = shortName || instance.type;
       var type_obj = action_obj[instance_type] || {};
       var conditions_by_context = type_obj.conditions || {};
       var resources = type_obj.resources || [];
@@ -145,23 +154,25 @@
       var condition;
       var i;
 
+      conditions = conditions.concat(conditions_by_context.null || []);
+
       if (checkAdmin(0) || checkAdmin(null)) {
         return true;
       }
       if (~resources.indexOf(instance.id)) {
         return true;
       }
-      if (!this._is_allowed(permissions,
-          new Permission(action, instance_type, null)) &&
-        !this._is_allowed(permissions,
-          new Permission(action, instance_type, context.id))) {
-        return false;
+      if (conditions.length === 0 && (this._is_allowed(permissions,
+          new Permission(action, instance_type, null)) ||
+        this._is_allowed(permissions,
+          new Permission(action, instance_type, context.id)))) {
+        return true;
       }
       // Check any conditions applied per instance
       // If there are no conditions, the user has unconditional access to
       // the current instance. We can safely return true in this case.
       if (conditions.length === 0) {
-        return true;
+        return false;
       }
       for (i = 0; i < conditions.length; i++) {
         condition = conditions[i];
@@ -219,4 +230,4 @@
   });
 
   ADMIN_PERMISSION = new Permission('__GGRC_ADMIN__', '__GGRC_ALL__', 0);
-})(this.can);
+})(window.can);

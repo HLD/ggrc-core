@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Contains WithSimilarityScore mixin.
@@ -9,13 +9,16 @@ relationships.
 
 from sqlalchemy import and_
 from sqlalchemy import case
-from sqlalchemy import literal
 from sqlalchemy import or_
+from sqlalchemy import select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql import func
 
 from ggrc import db
 from ggrc.models.relationship import Relationship
+from ggrc.models.snapshot import Snapshot
+
+DEFAULT_WEIGHT = 1
 
 
 class WithSimilarityScore(object):
@@ -31,17 +34,15 @@ class WithSimilarityScore(object):
 
   @classmethod
   def get_similar_objects_query(cls, id_, types="all", relevant_types=None,
-                                threshold=None):
+                                threshold=1):
     """Get objects of types similar to cls instance by their mappings.
 
     Args:
       id_: the id of the object to which the search will be applied;
       types: a list of types of relevant objects (or "all" if you need to find
              objects of any type);
-      relevant_types: use this parameter to override parameters from
-                      cls.similarity_options["relevant_types"];
-      threshold: use this parameter to override
-                 cls.similarity_options["threshold"].
+      relevant_types: use this parameter to override assessment_type;
+      threshold: use this parameter to set similarity threshold.
 
     Returns:
       SQLAlchemy query that yields results with columns [(id, type, weight)] -
@@ -50,32 +51,28 @@ class WithSimilarityScore(object):
     if not types or (not isinstance(types, list) and types != "all"):
       raise ValueError("Expected types = 'all' or a non-empty list of "
                        "requested types, got {!r} instead.".format(types))
-    if not hasattr(cls, "similarity_options"):
-      raise AttributeError("Expected 'similarity_options' defined for "
+    if not hasattr(cls, "assessment_type"):
+      raise AttributeError("Expected 'assessment_type' field defined for "
                            "'{c.__name__}' model.".format(c=cls))
     if relevant_types is None:
-      relevant_types = cls.similarity_options["relevant_types"]
-    if threshold is None:
-      threshold = cls.similarity_options["threshold"]
+      relevant_types = db.session.query(cls.assessment_type)\
+                                 .filter(cls.id == id_)
 
     # naming: self is "object", the object mapped to it is "related",
     # the object mapped to "related" is "similar"
-
     queries_for_union = []
 
     # find "similar" objects with Relationship table
     queries_for_union += cls._join_relationships(id_)
 
-    # find "similar" objects when Relationship table is not used
-    queries_for_union += cls._emulate_relationships(id_, types, relevant_types)
+    # find "similar" objects based on snapshots
+    queries_for_union += cls._join_snapshots(id_, types)
 
-    joined = queries_for_union.pop().union(*queries_for_union).subquery()
+    joined = queries_for_union.pop().union_all(*queries_for_union).subquery()
 
-    # define weights for every "related" object type with values from
-    # relevant_types dict
+    # define weights for every "related" object type with default_weight
     weight_case = case(
-        [(joined.c.related_type == type_, parameters["weight"])
-         for type_, parameters in relevant_types.items()],
+        [(joined.c.related_type == relevant_types, DEFAULT_WEIGHT)],
         else_=0)
     weight_sum = func.sum(weight_case).label("weight")
 
@@ -91,6 +88,16 @@ class WithSimilarityScore(object):
         joined.c.similar_type != cls.__name__,
     ))
 
+    # Filter Assessments with proper assessment_type
+    asmnt_cond = case([(
+        joined.c.similar_type == "Assessment",
+        and_(
+            joined.c.similar_id == cls.id,
+            cls.assessment_type == relevant_types,
+        )
+    )], else_=True)
+    result = result.join(cls, asmnt_cond)
+
     # do the filtering by "similar" object types
     if types is not None:
       if not types:
@@ -103,7 +110,7 @@ class WithSimilarityScore(object):
         # retain only types from the provided list
         result = result.filter(joined.c.similar_type.in_(types))
 
-    # group by "similar" objects to sum up weights correctly
+    # group by "similar" objects to remove duplicated rows
     result = result.group_by(
         joined.c.similar_type,
         joined.c.similar_id,
@@ -111,8 +118,94 @@ class WithSimilarityScore(object):
         # filter out "similar" objects that have insufficient similarity
         weight_sum >= threshold,
     )
-
     return result
+
+  @classmethod
+  def _join_snapshots(cls, id_, types):
+    """Retrieves related objects with snapshots
+
+    Performs a query where it first:
+    1) Find all directly mapped snapshots
+    2) Join with snapshots to find type and id of snapshots (child_type and
+    child_id) - left snapshots
+    3) Join with snapshots to find snapshots with the same child_type and
+    child_id (right_snapshots)
+    4) Find all objects mapped to right snapshots (right_relationships)
+
+    Arg:
+      id_: ID of instance performing similarity query on
+    Return:
+      [(related_type, similar_id, similar_type)] where related type is the type
+      related objects, similar_id and similar_type being id and type of
+      second tier objects.
+    """
+
+    left_snapshot = aliased(Snapshot, name="left_snapshot")
+    right_snapshot = aliased(Snapshot, name="right_snapshot")
+    left_relationship = aliased(Relationship, name="left_relationship")
+    right_relationship = aliased(Relationship, name="right_relationship")
+
+    snapshot_ids = select([
+        left_relationship.destination_id.label("snapshot_left_id"),
+    ]).where(
+        and_(
+            left_relationship.source_type == cls.__name__,
+            left_relationship.source_id == id_,
+            left_relationship.destination_type == "Snapshot"
+        )
+    ).union(
+        select([
+            left_relationship.source_id.label("snapshot_left_id"),
+        ]).where(
+            and_(
+                left_relationship.destination_type == cls.__name__,
+                left_relationship.destination_id == id_,
+                left_relationship.source_type == "Snapshot"
+            )
+        )
+    ).alias("snapshot_ids")
+
+    left_snapshot_join = snapshot_ids.outerjoin(
+        left_snapshot,
+        left_snapshot.id == snapshot_ids.c.snapshot_left_id
+    )
+
+    right_snapshot_join = left_snapshot_join.outerjoin(
+        right_snapshot,
+        and_(
+            right_snapshot.child_type == left_snapshot.child_type,
+            right_snapshot.child_id == left_snapshot.child_id
+        )
+    ).alias("right_snapshot_join")
+
+    return [
+        db.session.query(
+            right_snapshot_join.c.right_snapshot_child_type.label(
+                "related_type"),
+            right_relationship.source_id.label("similar_id"),
+            right_relationship.source_type.label("similar_type"),
+        ).filter(
+            and_(
+                right_relationship.destination_type == "Snapshot",
+                right_relationship.destination_id ==
+                right_snapshot_join.c.right_snapshot_id,
+                right_relationship.source_type.in_(types)
+            )
+        ),
+        db.session.query(
+            right_snapshot_join.c.right_snapshot_child_type.label(
+                "related_type"),
+            right_relationship.destination_id.label("similar_id"),
+            right_relationship.destination_type.label("similar_type"),
+        ).filter(
+            and_(
+                right_relationship.source_type == "Snapshot",
+                right_relationship.source_id ==
+                right_snapshot_join.c.right_snapshot_id,
+                right_relationship.destination_type.in_(types)
+            )
+        )
+    ]
 
   @classmethod
   def _join_relationships(cls, id_):
@@ -157,6 +250,8 @@ class WithSimilarityScore(object):
             related_to_similar,
             and_(related_id_case == related_to_similar.source_id,
                  related_type_case == related_to_similar.source_type),
+        ).filter(
+            related_to_similar.source_type != "Snapshot"
         ),
         db.session.query(
             related_type_case,
@@ -166,90 +261,7 @@ class WithSimilarityScore(object):
             related_to_similar,
             and_(related_id_case == related_to_similar.destination_id,
                  related_type_case == related_to_similar.destination_type),
-        ),
-    ]
-
-  @classmethod
-  def _emulate_relationships(cls, id_, types, relevant_types):
-    """Get a list of queries for second-tier objects mapped via foreign key.
-
-    This is used primarily to determine Requests mapped to Audits (Request
-    model has a foreign key to Audit model and is not mapped with a
-    Relationship object).
-
-    Each query returns results compliant with the results of
-    _join_relationships as they get UNIONed.
-    """
-
-    # Note: this is a hack that can go away only when Request-Audit mapping
-    # will be implemented in Relationships table
-
-    from ggrc.models import Audit, Request
-
-    result = []
-    if Audit.__name__ in relevant_types:
-      # Note: this code assumes that `types` is a single-element list
-      if cls is Request and Request.__name__ in types:
-        similar_requests = aliased(cls, name="similar_requests")
-        result.append(db.session.query(
-            literal(Audit.__name__).label("related_type"),
-            similar_requests.id.label("similar_id"),
-            literal(Request.__name__).label("similar_type"),
-        ).select_from(
-            similar_requests,
-        ).join(
-            cls,
-            similar_requests.audit_id == cls.audit_id,
         ).filter(
-            and_(cls.id == id_,
-                 cls.id != similar_requests.id),
-        ))
-      elif cls is Request and Request.__name__ not in types:
-        audit_to_similar = aliased(Relationship, name="audit_to_similar")
-        result.append(db.session.query(
-            literal(Audit.__name__).label("related_type"),
-            audit_to_similar.source_id.label("similar_id"),
-            audit_to_similar.source_type.label("similar_type"),
-        ).select_from(
-            audit_to_similar,
-        ).join(
-            cls,
-            and_(audit_to_similar.destination_id == cls.audit_id,
-                 audit_to_similar.destination_type == Audit.__name__),
-        ))
-        result.append(db.session.query(
-            literal(Audit.__name__).label("related_type"),
-            audit_to_similar.destination_id.label("similar_id"),
-            audit_to_similar.destination_type.label("similar_type"),
-        ).select_from(
-            audit_to_similar,
-        ).join(
-            cls,
-            and_(audit_to_similar.source_id == cls.audit_id,
-                 audit_to_similar.source_type == Audit.__name__),
-        ))
-      elif cls is not Request and Request.__name__ in types:
-        self_to_audit = aliased(Relationship, name="self_to_audit")
-        request = aliased(Request)
-
-        result.append(db.session.query(
-            literal(Audit.__name__).label("related_type"),
-            request.id.label("similar_id"),
-            literal(Request.__name__).label("similar_type"),
-        ).select_from(
-            request,
-        ).join(
-            self_to_audit,
-            or_(
-                and_(self_to_audit.source_id == id_,
-                     self_to_audit.source_type == cls.__name__,
-                     self_to_audit.destination_id == request.audit_id,
-                     self_to_audit.destination_type == Audit.__name__),
-                and_(self_to_audit.destination_id == id_,
-                     self_to_audit.destination_type == cls.__name__,
-                     self_to_audit.source_id == request.audit_id,
-                     self_to_audit.source_type == Audit.__name__),
-            ),
-        ))
-
-    return result
+            related_to_similar.destination_type != "Snapshot"
+        )
+    ]

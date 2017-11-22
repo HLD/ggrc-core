@@ -1,219 +1,174 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
-
-"""Base classes for widget models"""
+"""Base widget models."""
 # pylint: disable=not-callable
 # pylint: disable=not-an-iterable
+# pylint: disable=too-few-public-methods
 
-from lib import base
-from lib import decorator
-from lib import environment
+from lib import base, decorator, environment
+from lib.constants import locator, url, objects
+from lib.entities.entity import CustomAttributeEntity
 from lib.utils import selenium_utils
-from lib.constants import locator
-from lib.constants import url
+from lib.utils.string_utils import get_bool_value_from_arg
 
 
 class _Modal(base.Modal):
-  """Base model for the edit modal"""
-
-  _locator = locator.ModalCustomAttribute
+  """Base model for Edit modal."""
+  _locators = locator.ModalCustomAttribute
 
   def __init__(self, driver):
     super(_Modal, self).__init__(driver)
-
-    self.ui_attribute_title = base.TextInputField(
-        self._driver, self._locator.UI_ATTRIBUTE_TITLE)
-    self.button_submit = base.Button(
-        self._driver, self._locator.BUTTON_SAVE_AND_CLOSE)
+    self.modal_window = self._driver.find_element(*self._locators.MODAL_CSS)
+    self.attr_title_ui = base.TextInputField(
+        self.modal_window, self._locators.ATTR_TITLE_UI_CSS)
+    self.submit_btn = base.Button(
+        self.modal_window, self._locators.SAVE_AND_CLOSE_BTN_CSS)
 
   def enter_title(self, title):
-    self.ui_attribute_title.enter_text(title)
+    self.attr_title_ui.enter_text(title)
 
   @decorator.handle_alert
   def save_and_close(self):
     """
-    Returns:
-        WidgetAdminCustomAttributes
+    Return: WidgetAdminCustomAttributes
     """
-    self.button_submit.click()
+    self.submit_btn.click()
+    selenium_utils.wait_until_not_present(
+        self._driver, self._locators.SAVE_AND_CLOSE_BTN_CSS)
+    selenium_utils.wait_until_not_present(
+        self._driver, self._locators.MODAL_CSS)
 
 
-class CreateNewCustomAttributeModal(base.Modal):
-  _locator = locator.ModalCustomAttribute
+class CustomAttributesItemContent(base.Component):
+  """Model for 2-tier of custom attributes Tree View item."""
+  _locators = locator.CustomAttributesItemContent
 
-  def __init__(self, driver):
-    super(CreateNewCustomAttributeModal, self).__init__(driver)
+  def __init__(self, driver, item_text):
+    super(CustomAttributesItemContent, self).__init__(driver)
+    self.add_btn = base.Button(driver, self._locators.ADD_BTN_CSS)
+    self.custom_attributes_list = []
+    self._item_name = item_text
 
-    self.button_add_more = base.Button(
-        self._driver, self._locator.BUTTON_ADD_ANOTHER)
+  def add_new_custom_attribute(self, ca_obj):
+    """Create Custom Attribute entry based on given Custom Attribute object."""
+    ca_modal = self.open_add_new_ca_modal()
+    ca_modal.select_type(ca_obj.attribute_type)
+    ca_modal.enter_title(ca_obj.title)
+    if ca_obj.mandatory:
+      ca_modal.set_mandatory()
+    if ca_obj.placeholder:
+      ca_modal.enter_placeholder(ca_obj.placeholder)
+    if ca_obj.helptext:
+      ca_modal.enter_inline_help(ca_obj.helptext)
+    if ca_obj.multi_choice_options:
+      ca_modal.enter_possible_values(ca_obj.multi_choice_options)
+    ca_modal.save_and_close()
 
-  def save_and_add_another(self):
+  def _set_custom_attributes_list(self):
+    """Set custom attributes list with Custom Attribute objects from
+    current opened content item.
     """
-    Returns:
-        ModalCustomAttributes
-    """
-    self.button_add_more.click_when_visible()
-    return self.__class__(self._driver)
+    for row in selenium_utils.get_when_all_visible(self._driver,
+                                                   self._locators.ROW_CSS):
+      attrs = [i.text for i in row.find_elements(
+          *self._locators.CELL_IN_ROW_CSS)]
+      self.custom_attributes_list.append(
+          CustomAttributeEntity(
+              title=attrs[0],
+              type=objects.get_singular(objects.CUSTOM_ATTRIBUTES),
+              attribute_type=attrs[1],
+              mandatory=get_bool_value_from_arg(attrs[2]),
+              definition_type=self._item_name))
 
+  def get_ca_list_from_group(self):
+    """Return list of Custom Attribute objects."""
+    self._set_custom_attributes_list()
+    return self.custom_attributes_list
 
-class Dropdown(base.Component):
-  """A generic model for a dropdown in custom attributes"""
+  def open_add_new_ca_modal(self):
+    """Open Add Attribute modal and return Custom Attribute Modal."""
+    selenium_utils.wait_until_stops_moving(self.add_btn.element)
+    selenium_utils.scroll_into_view(self._driver, self.add_btn.element)
+    selenium_utils.get_when_clickable(self._driver, self._locators.ADD_BTN_CSS)
+    selenium_utils.wait_until_not_present(
+        self._driver, self._locators.TREE_SPINNER_CSS)
+    self.add_btn.click()
+    return CustomAttributeModal(self._driver)
 
-  _locator_button_add = None
-  _locator_label_attribute_name = None
-  _locator_label_attribute_type = None
-  _locator_label_mandatory = None
-  _locator_label_edit = None
-  _locator_listed_members = None
-  _locator_buttons_edit = None
-  _cls_new_attrb_modal = None
-
-  def __init__(self, driver):
-    super(Dropdown, self).__init__(driver)
-
-    self.button_add = base.Button(driver, self._locator_button_add)
-    self.attribute_name = base.Label(
-        driver, self._locator_label_attribute_name)
-    self.attribute_type = base.Label(
-        driver, self._locator_label_attribute_type)
-    self.mandatory = base.Label(driver, self._locator_label_mandatory)
-    self.edit = base.Label(driver, self._locator_label_edit)
-
-  def add_new_custom_attribute(self):
-    """
-    Returns:
-        new_custom_attribute.ModalCustomAttributes
-    """
-    selenium_utils.wait_until_stops_moving(self.button_add.element)
-    selenium_utils.scroll_into_view(self._driver, self.button_add.element)
-    self.button_add.click()
-    return self._cls_new_attrb_modal(self._driver)
-
-  def edit_nth_member(self, member):
-    """Selects nth member from listed members in the dropdown. Since we're
-    selecting from a list, the first member has the index 0.
-
-    Args:
-        member (int)
+  def select_ca_member_by_num(self, num):
+    """Select Custom Attribute member from list of members by number
+    (start from 0).
+    Args: num (int)
+    Return: lib.page.widget.widget_base.CustomAttributeModal
     """
     # check that the buttons are loaded
     selenium_utils.get_when_clickable(
-        self._driver, self._locator_buttons_edit)
-
-    elements = self._driver.find_elements(*self._locator_buttons_edit)
-    selenium_utils.scroll_into_view(self._driver, elements[member]).click()
+        self._driver, self._locators.EDIT_BTN_CSS)
+    elements = self._driver.find_elements(self._locators.EDIT_BTN_CSS)
+    selenium_utils.scroll_into_view(self._driver, elements[num]).click()
     return CustomAttributeModal(self._driver)
 
 
 class CustomAttributeModal(_Modal):
-  """Model for the custom attribute modal"""
-
+  """Custom attribute modal."""
+  # pylint: disable=too-many-instance-attributes
   def __init__(self, driver):
     super(CustomAttributeModal, self).__init__(driver)
-    self.attribute_title = base.Label(
-        self._driver, self._locator.ATTRIBUTE_TITLE)
-    self.inline_help = base.Label(self._driver, self._locator.INLINE_HELP)
-    self.attribute_type = base.Label(
-        self._driver, self._locator.ATTRIBUTE_TYPE)
-    self.placeholder = base.Label(self._driver, self._locator.PLACEHOLDER)
-    self.mandatory = base.Label(self._driver, self._locator.MANDATORY)
-    self.ui_inline_help = base.TextInputField(
-        self._driver, self._locator.UI_INLINE_HELP)
-    self.ui_placeholder = base.TextInputField(
-        self._driver, self._locator.UI_PLACEHOLDER)
-    self.checkbox_mandatory = base.Checkbox(
-        self._driver, self._locator.CHECKBOX_MANDATORY)
+    self.attr_title_lbl = base.Label(
+        self.modal_window, self._locators.ATTR_TITLE_LBL_CSS)
+    self.attr_type_lbl = base.Label(
+        self.modal_window, self._locators.ATTR_TYPE_CSS)
+    self.attr_type_selector_dd = base.DropdownStatic(
+        self.modal_window, self._locators.ATTR_TYPE_SELECTOR_DD_CSS)
+    self.mandatory_lbl = base.Label(
+        self.modal_window, self._locators.MANDATORY_LBL_CSS)
+    self.mandatory_cb = base.Checkbox(
+        self.modal_window, self._locators.MANDATORY_CB_CSS)
+    self.inline_help_lbl = base.Label(
+        self.modal_window, self._locators.INLINE_HELP_LBL_CSS)
+    self.inline_help_ui = None
+    self.placeholder_lbl = base.Label(
+        self.modal_window, self._locators.PLACEHOLDER_LBL_CSS)
+    self.placeholder_ui = None
+    self.possible_values_ui = None
 
   def enter_inline_help(self, inline_help):
-    self.ui_inline_help.enter_text(inline_help)
+    """Fill 'Inline help' field."""
+    self.inline_help_ui = base.TextInputField(
+        self.modal_window, self._locators.INLINE_HELP_UI_CSS)
+    self.inline_help_ui.enter_text(inline_help)
 
   def enter_placeholder(self, placeholder):
-    self.ui_placeholder.enter_text(placeholder)
+    """Fill 'Placeholder' field."""
+    self.placeholder_ui = base.TextInputField(
+        self.modal_window, self._locators.PLACEHOLDER_UI_CSS)
+    self.placeholder_ui.enter_text(placeholder)
 
-  def check_is_mandatory(self):
-    self.checkbox_mandatory.click()
+  def set_mandatory(self):
+    """Check 'Mandatory' checkbox."""
+    self.mandatory_cb.click()
+
+  def select_type(self, ca_type):
+    """Select CustomAttribute type from 'Attribute type' dropdown."""
+    self.attr_type_selector_dd.select(ca_type)
+
+  def enter_possible_values(self, values_string):
+    """Fill 'Possible values' field for 'Dropdown' type of CustomAttribute."""
+    self.possible_values_ui = base.TextInputField(
+        self.modal_window, self._locators.POSSIBLE_VALUES_UI_CSS)
+    self.possible_values_ui.enter_text(values_string)
 
 
 class DynamicTreeToggle(base.Toggle):
-  """Class representing the tree item in admin custom attribute widget"""
-
+  """Tree item in Admin custom attribute widget."""
   def __init__(self, driver, el_locator):
+    super(DynamicTreeToggle, self).__init__(driver, el_locator)
     self.element = driver.find_element(*el_locator)
     self.is_activated = selenium_utils.is_value_in_attr(self.element)
 
 
 class WidgetAdminCustomAttributes(base.Widget):
-  """Base model for custom attributes on the admin dashboard page"""
-  _locator = locator.AdminCustomAttributes
-  URL = environment.APP_URL \
-      + url.ADMIN_DASHBOARD \
-      + url.Widget.CUSTOM_ATTRIBUTES
-
-  def __init__(self, driver):
-    super(WidgetAdminCustomAttributes, self).__init__(driver)
-    self.filter = base.Filter(
-        self._driver,
-        self._locator.FILTER_INPUT_FIELD,
-        self._locator.FILTER_BUTTON_SUBMIT,
-        self._locator.FILTER_BUTTON_RESET)
-
-    self.button_workflows = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_WORKFLOWS)
-    self.button_risk_assessments = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_RISK_ASSESSMENTS)
-    self.button_threats = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_THREATS)
-    self.button_risks = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_RISKS)
-    self.button_programs = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_PROGRAMS)
-    self.button_audits = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_AUDITS)
-    self.button_objectives = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_OBJECTIVES)
-    self.button_sections = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_SECTIONS)
-    self.button_controls = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_CONTROLS)
-    self.button_issues = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_ISSUES)
-    self.button_assessments = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_ASSESSMENTS)
-    self.button_standards = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_STANDARDS)
-    self.button_regulations = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_REGULATIONS)
-    self.button_policies = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_POLICIES)
-    self.button_contracts = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_CONTRACTS)
-    self.button_clauses = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_CLAUSES)
-    self.button_requests = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_REQUESTS)
-    self.button_vendors = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_VENDORS)
-    self.button_people = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_PEOPLE)
-    self.button_objectives = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_OBJECTIVES)
-    self.button_access_groups = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_ACCESS_GROUPS)
-    self.button_org_groups = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_ORG_GROUPS)
-    self.button_products = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_PRODUCTS)
-    self.button_markets = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_MARKETS)
-    self.button_processes = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_PROCESSES)
-    self.button_facilities = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_FACILITIES)
-    self.button_projects = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_PROJECTS)
-    self.button_contracts = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_CONTRACTS)
-    self.button_data_assets = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_DATA_ASSETS)
-    self.button_systems = DynamicTreeToggle(
-        self._driver, self._locator.TOGGLE_SYSTEMS)
+  """Base model for custom attributes on Admin Dashboard page."""
+  _locators = locator.AdminCustomAttributes
+  URL = (environment.APP_URL + url.ADMIN_DASHBOARD +
+         url.Widget.CUSTOM_ATTRIBUTES)

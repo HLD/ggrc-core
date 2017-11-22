@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 # pylint: disable=maybe-no-member
@@ -7,15 +7,15 @@
 
 from ggrc import models
 from ggrc.converters import errors
-from integration.ggrc import converters
+from integration.ggrc import TestCase
 
 
-class TestAssessmentTemplatesImport(converters.TestCase):
+class TestAssessmentTemplatesImport(TestCase):
   """Assessment Template import tests."""
 
   def setUp(self):
-    """Set up for Request test cases."""
-    converters.TestCase.setUp(self)
+    """Set up for Assessment Template test cases."""
+    super(TestAssessmentTemplatesImport, self).setUp()
     self.client.get("/login")
 
   def test_valid_import(self):

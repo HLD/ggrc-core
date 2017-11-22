@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
 .btn-outline {
-    background: none;
+    background: $white;
     font-weight: normal;
-    border: 1px solid rgba(0,0,0,0.3);
-    color: $blue;
+    border: 1px solid $widgetBorder;
+    color: black;
+    border-radius: 2px;
 
     &:hover,
     &:focus,
     &:active {
-        color: $black;
-        border-color: $black;
+        border-color: $widgetBorder;
     }
 }

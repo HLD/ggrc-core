@@ -1,9 +1,10 @@
 /*
-  Copyright (C) 2016 Google Inc.
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
-(function (can, $, Mustache) {
+(function (can, $) {
+  var Mustache = can.Mustache;
   /*
    sort_index_at_end mustache helper
 
@@ -193,16 +194,10 @@
   Mustache.registerHelper('if_recurring_workflow', function (object, options) {
     object = Mustache.resolve(object);
     if (object.type === 'Workflow' &&
-        _.includes(['weekly', 'monthly', 'quarterly', 'annually'],
-                   object.frequency)) {
+        _.includes(['day', 'week', 'month'],
+                   object.unit)) {
       return options.fn(this);
     }
     return options.inverse(this);
   });
-
-  Mustache.registerHelper('can_edit_response', function (instance, status) {
-    var cycle = Mustache.resolve(instance).cycle.reify();
-    status = Mustache.resolve(status);
-    return cycle.is_current && ['Finished', 'Verified'].indexOf(status) === -1;
-  });
-})(this.can, this.can.$, this.Mustache);
+})(window.can, window.can.$);

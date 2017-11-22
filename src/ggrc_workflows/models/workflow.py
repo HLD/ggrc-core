@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Workflow object and WorkflowState mixins.
@@ -6,77 +6,52 @@
 This contains the basic Workflow object and a mixin for determining the state
 of the Objects that are mapped to any cycle tasks.
 """
+import calendar
+import itertools
+import datetime
+from dateutil import relativedelta
 
-from datetime import date
 from sqlalchemy import and_
+from sqlalchemy import case
 from sqlalchemy import orm
+from sqlalchemy.ext import hybrid
 
+from ggrc import builder
 from ggrc import db
 from ggrc.fulltext import get_indexer
-from ggrc.fulltext.recordbuilder import fts_record_for
+from ggrc.fulltext.mixin import Indexed
 from ggrc.login import get_current_user
 from ggrc.models import mixins
 from ggrc.models import reflection
 from ggrc.models.associationproxy import association_proxy
-from ggrc.models.computed_property import computed_property
 from ggrc.models.context import HasOwnContext
 from ggrc.models.deferred import deferred
 from ggrc_workflows.models import cycle
 from ggrc_workflows.models import cycle_task_group
+from ggrc_workflows.services import google_holidays
 
 
 class Workflow(mixins.CustomAttributable, HasOwnContext, mixins.Timeboxed,
-               mixins.Described, mixins.Titled, mixins.Slugged,
-               mixins.Stateful, mixins.Base, db.Model):
+               mixins.Described, mixins.Titled, mixins.Notifiable,
+               mixins.Stateful, mixins.Slugged, Indexed, db.Model):
   """Basic Workflow first class object.
   """
   __tablename__ = 'workflows'
   _title_uniqueness = False
 
-  VALID_STATES = [u"Draft", u"Active", u"Inactive"]
-
-  VALID_FREQUENCIES = [
-      "one_time",
-      "weekly",
-      "monthly",
-      "quarterly",
-      "annually"
-  ]
+  DRAFT = u"Draft"
+  ACTIVE = u"Active"
+  INACTIVE = u"Inactive"
+  VALID_STATES = [DRAFT, ACTIVE, INACTIVE]
 
   @classmethod
-  def default_frequency(cls):
-    return 'one_time'
-
-  @orm.validates('frequency')
-  def validate_frequency(self, _, value):
-    """Make sure that value is listed in valid frequencies.
-
-    Args:
-      value: A string value for requested frequency
-
-    Returns:
-      default_frequency which is 'one_time' if the value is None, or the value
-      itself.
-
-    Raises:
-      Value error, if the value is not None or in the VALID_FREQUENCIES array.
-    """
-    if value is None:
-      value = self.default_frequency()
-    if value not in self.VALID_FREQUENCIES:
-      message = u"Invalid state '{}'".format(value)
-      raise ValueError(message)
-    return value
+  def default_status(cls):
+    return cls.DRAFT
 
   notify_on_change = deferred(
       db.Column(db.Boolean, default=False, nullable=False), 'Workflow')
   notify_custom_message = deferred(
       db.Column(db.Text, nullable=True), 'Workflow')
-
-  frequency = deferred(
-      db.Column(db.String, nullable=True, default=default_frequency),
-      'Workflow'
-  )
 
   object_approval = deferred(
       db.Column(db.Boolean, default=False, nullable=False), 'Workflow')
@@ -109,8 +84,160 @@ class Workflow(mixins.CustomAttributable, HasOwnContext, mixins.Timeboxed,
   # there is no 'kind' column yet
   kind = deferred(
       db.Column(db.String, default=None, nullable=True), 'Workflow')
+  IS_VERIFICATION_NEEDED_DEFAULT = True
+  is_verification_needed = db.Column(
+      db.Boolean,
+      default=IS_VERIFICATION_NEEDED_DEFAULT,
+      nullable=False)
 
-  @computed_property
+  repeat_every = deferred(db.Column(db.Integer, nullable=True, default=None),
+                          'Workflow')
+  DAY_UNIT = 'day'
+  WEEK_UNIT = 'week'
+  MONTH_UNIT = 'month'
+  VALID_UNITS = (DAY_UNIT, WEEK_UNIT, MONTH_UNIT)
+  unit = deferred(db.Column(db.Enum(*VALID_UNITS), nullable=True,
+                            default=None), 'Workflow')
+  repeat_multiplier = deferred(db.Column(db.Integer, nullable=False,
+                                         default=0), 'Workflow')
+
+  UNIT_FREQ_MAPPING = {
+      None: "one_time",
+      DAY_UNIT: "daily",
+      WEEK_UNIT: "weekly",
+      MONTH_UNIT: "monthly"
+  }
+
+  @hybrid.hybrid_property
+  def frequency(self):
+    """Hybrid property for SearchAPI filtering backward compatibility"""
+    return self.UNIT_FREQ_MAPPING[self.unit]
+
+  @frequency.expression
+  def frequency(self):
+    """Hybrid property for SearchAPI filtering backward compatibility"""
+    return case([
+        (self.unit.is_(None), self.UNIT_FREQ_MAPPING[None]),
+        (self.unit == self.DAY_UNIT, self.UNIT_FREQ_MAPPING[self.DAY_UNIT]),
+        (self.unit == self.WEEK_UNIT, self.UNIT_FREQ_MAPPING[self.WEEK_UNIT]),
+        (self.unit == self.MONTH_UNIT,
+         self.UNIT_FREQ_MAPPING[self.MONTH_UNIT]),
+    ])
+
+  @property
+  def tasks(self):
+    return list(itertools.chain(*[t.task_group_tasks
+                                  for t in self.task_groups]))
+
+  @property
+  def min_task_start_date(self):
+    """Fetches non adjusted setup cycle start date based on TGT user's setup.
+
+    Args:
+        self: Workflow instance.
+
+    Returns:
+        Date when first cycle should be started based on user's setup.
+    """
+    tasks = self.tasks
+    min_date = None
+    for task in tasks:
+      min_date = min(task.start_date, min_date or task.start_date)
+    return min_date
+
+  WORK_WEEK_LEN = 5
+
+  @classmethod
+  def first_work_day(cls, day):
+    holidays = google_holidays.GoogleHolidays()
+    while day.isoweekday() > cls.WORK_WEEK_LEN or day in holidays:
+      day -= relativedelta.relativedelta(days=1)
+    return day
+
+  def calc_next_adjusted_date(self, setup_date):
+    """Calculates adjusted date which are expected in next cycle.
+
+    Args:
+        setup_date: Date which was setup by user.
+
+    Returns:
+        Adjusted date which are expected to be in next Workflow cycle.
+    """
+    if self.repeat_every is None or self.unit is None:
+      return self.first_work_day(setup_date)
+    try:
+      key = {
+          self.WEEK_UNIT: "weeks",
+          self.MONTH_UNIT: "months",
+          self.DAY_UNIT: "days",
+      }[self.unit]
+    except KeyError:
+      raise ValueError("Invalid Workflow unit")
+    repeater = self.repeat_every * self.repeat_multiplier
+    if self.unit == self.DAY_UNIT:
+      weeks = repeater / self.WORK_WEEK_LEN
+      days = repeater % self.WORK_WEEK_LEN
+      # append weekends if it's needed
+      days += ((setup_date.isoweekday() + days) > self.WORK_WEEK_LEN) * 2
+      return setup_date + relativedelta.relativedelta(
+          setup_date, weeks=weeks, days=days)
+    calc_date = setup_date + relativedelta.relativedelta(
+        setup_date,
+        **{key: repeater}
+    )
+    if self.unit == self.MONTH_UNIT:
+      # check if setup date is the last day of the month
+      # and if it is then calc_date should be the last day of hte month too
+      setup_day = calendar.monthrange(setup_date.year, setup_date.month)[1]
+      if setup_day == setup_date.day:
+        calc_date = datetime.date(
+            calc_date.year,
+            calc_date.month,
+            calendar.monthrange(calc_date.year, calc_date.month)[1])
+    return self.first_work_day(calc_date)
+
+  @orm.validates('repeat_every')
+  def validate_repeat_every(self, _, value):
+    """Validate repeat_every field for Workflow.
+
+    repeat_every shouldn't have 0 value.
+    """
+    if value is not None and not isinstance(value, (int, long)):
+      raise ValueError("'repeat_every' should be integer or 'null'")
+    if value is not None and value <= 0:
+      raise ValueError("'repeat_every' should be strictly greater than 0")
+    return value
+
+  @orm.validates('unit')
+  def validate_unit(self, _, value):
+    """Validate unit field for Workflow.
+
+    Unit should have one of the value from VALID_UNITS list or None.
+    """
+    if value is not None and value not in self.VALID_UNITS:
+      raise ValueError("'unit' field should be one of the "
+                       "value: null, {}".format(", ".join(self.VALID_UNITS)))
+    return value
+
+  @orm.validates('is_verification_needed')
+  def validate_is_verification_needed(self, _, value):
+    # pylint: disable=unused-argument
+    """Validate is_verification_needed field for Workflow.
+
+    It's not allowed to change is_verification_needed flag after creation.
+    If is_verification_needed doesn't send,
+    then is_verification_needed flag is True.
+    """
+    if self.is_verification_needed is None:
+      return self.IS_VERIFICATION_NEEDED_DEFAULT if value is None else value
+    if value is None:
+      return self.is_verification_needed
+    if self.status != self.DRAFT and value != self.is_verification_needed:
+      raise ValueError("is_verification_needed value isn't changeble "
+                       "on workflow with '{}' status".format(self.status))
+    return value
+
+  @builder.simple_property
   def workflow_state(self):
     return WorkflowState.get_workflow_state(self.cycles)
 
@@ -118,29 +245,49 @@ class Workflow(mixins.CustomAttributable, HasOwnContext, mixins.Timeboxed,
       'notify_custom_message',
   ]
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'workflow_people',
-      reflection.PublishOnly('people'),
+      reflection.Attribute('people', create=False, update=False),
       'task_groups',
-      'frequency',
       'notify_on_change',
       'notify_custom_message',
       'cycles',
       'object_approval',
       'recurrences',
-      reflection.PublishOnly('next_cycle_start_date'),
-      reflection.PublishOnly('non_adjusted_next_cycle_start_date'),
-      reflection.PublishOnly('workflow_state'),
-      reflection.PublishOnly('kind')
-  ]
+      'is_verification_needed',
+      'repeat_every',
+      'unit',
+      reflection.Attribute('next_cycle_start_date',
+                           create=False, update=False),
+      reflection.Attribute('non_adjusted_next_cycle_start_date',
+                           create=False, update=False),
+      reflection.Attribute('workflow_state',
+                           create=False, update=False),
+      reflection.Attribute('kind',
+                           create=False, update=False),
+  )
 
   _aliases = {
-      "frequency": {
-          "display_name": "Frequency",
+      "repeat_every": {
+          "display_name": "Repeat Every",
+          "description": "'Repeat Every' value\nmust fall into\nthe range 1~30"
+                         "\nor '-' for None",
+      },
+      "unit": {
+          "display_name": "Unit",
+          "description": "Allowed values for\n'Unit' are:\n{}"
+                         "\nor '-' for None".format("\n".join(VALID_UNITS)),
+      },
+      "is_verification_needed": {
+          "display_name": "Need Verification",
           "mandatory": True,
+          "description": "This field is not changeable\nafter creation.",
       },
       "notify_custom_message": "Custom email message",
-      "notify_on_change": "Force real-time email updates",
+      "notify_on_change": {
+          "display_name": "Force real-time email updates",
+          "mandatory": False,
+      },
       "workflow_owner": {
           "display_name": "Manager",
           "type": reflection.AttributeInfo.Type.USER_ROLE,
@@ -168,10 +315,15 @@ class Workflow(mixins.CustomAttributable, HasOwnContext, mixins.Timeboxed,
   def copy(self, _other=None, **kwargs):
     """Create a partial copy of the current workflow.
     """
-    columns = [
-        'title', 'description', 'notify_on_change', 'notify_custom_message',
-        'frequency', 'end_date', 'start_date'
-    ]
+    columns = ['title',
+               'description',
+               'notify_on_change',
+               'notify_custom_message',
+               'end_date',
+               'start_date',
+               'repeat_every',
+               'unit',
+               'is_verification_needed']
     target = self.copy_into(_other, columns, **kwargs)
     return target
 
@@ -203,8 +355,23 @@ class Workflow(mixins.CustomAttributable, HasOwnContext, mixins.Timeboxed,
         orm.subqueryload('cycles').undefer_group('Cycle_complete')
            .subqueryload("cycle_task_group_object_tasks")
            .undefer_group("CycleTaskGroupObjectTask_complete"),
-        orm.subqueryload('task_groups'),
+        orm.subqueryload('task_groups').undefer_group('TaskGroup_complete'),
+        orm.subqueryload(
+            'task_groups'
+        ).subqueryload(
+            "task_group_tasks"
+        ).undefer_group(
+            'TaskGroupTask_complete'
+        ),
         orm.subqueryload('workflow_people'),
+    )
+
+  @classmethod
+  def indexed_query(cls):
+    return super(Workflow, cls).indexed_query().options(
+        orm.Load(cls).undefer_group(
+            "Workflow_complete",
+        ),
     )
 
   @classmethod
@@ -221,18 +388,17 @@ class Workflow(mixins.CustomAttributable, HasOwnContext, mixins.Timeboxed,
       return False
 
     # Check if backlog workflow already exists
-    backlog_workflows = Workflow.query\
-                                .filter(and_
-                                        (Workflow.kind == "Backlog",
-                                         Workflow.frequency == "one_time"))\
-                                .all()
+    backlog_workflows = Workflow.query.filter(
+        and_(Workflow.kind == "Backlog",
+             # the following means one_time wf
+             Workflow.unit is None)
+    ).all()
 
     if len(backlog_workflows) > 0 and any_active_cycle(backlog_workflows):
       return "At least one backlog workflow already exists"
     # Create a backlog workflow
     backlog_workflow = Workflow(description="Backlog workflow",
                                 title="Backlog (one time)",
-                                frequency="one_time",
                                 status="Active",
                                 recurrences=0,
                                 kind="Backlog")
@@ -262,13 +428,13 @@ class Workflow(mixins.CustomAttributable, HasOwnContext, mixins.Timeboxed,
                         end_date=None,
                         context=backlog_workflow
                         .get_or_create_object_context())
+
     db.session.add_all([backlog_workflow, backlog_cycle, backlog_ctg])
     db.session.flush()
 
     # add fulltext entries
-    get_indexer().create_record(fts_record_for(backlog_workflow))
-    get_indexer().create_record(fts_record_for(backlog_cycle))
-    get_indexer().create_record(fts_record_for(backlog_ctg))
+    indexer = get_indexer()
+    indexer.create_record(indexer.fts_record_for(backlog_workflow))
     return "Backlog workflow created"
 
 
@@ -279,12 +445,19 @@ class WorkflowState(object):
   to workflow tasks.
   """
 
-  _publish_attrs = [reflection.PublishOnly('workflow_state')]
-  _update_attrs = []
-  _stub_attrs = []
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('workflow_state', create=False, update=False)
+  )
+
+  OVERDUE = "Overdue"
+  VERIFIED = "Verified"
+  FINISHED = "Finished"
+  ASSIGNED = "Assigned"
+  IN_PROGRESS = "InProgress"
+  UNKNOWN_STATE = None
 
   @classmethod
-  def _get_state(cls, current_tasks):
+  def _get_state(cls, statusable_childs):
     """Get overall state of a group of tasks.
 
     Rules, the first that is true is selected:
@@ -304,23 +477,13 @@ class WorkflowState(object):
     Returns:
       Overall state according to the rules described above.
     """
-    states = [task.status or "Assigned" for task in current_tasks]
 
-    if states.count("Verified") == len(states):
-      resulting_state = "Verified"
-    elif states.count("Finished") == len(states):
-      resulting_state = "Finished"
-    elif not set(states).intersection({"InProgress", "Assigned", "Declined"}):
-      resulting_state = "Finished"
-    elif set(states).intersection({"InProgress", "Declined", "Finished",
-                                   "Verified"}):
-      resulting_state = "InProgress"
-    elif "Assigned" in states:
-      resulting_state = "Assigned"
-    else:
-      resulting_state = None
-
-    return resulting_state
+    states = {i.status or i.ASSIGNED for i in statusable_childs}
+    if states in [{cls.VERIFIED}, {cls.FINISHED}, {cls.ASSIGNED}]:
+      return states.pop()
+    if states == {cls.FINISHED, cls.VERIFIED}:
+      return cls.FINISHED
+    return cls.IN_PROGRESS if states else cls.UNKNOWN_STATE
 
   @classmethod
   def get_object_state(cls, objs):
@@ -337,20 +500,13 @@ class WorkflowState(object):
       Name of the lowest state of all active cycle tasks that relate to the
       given objects.
     """
-    current_tasks = [task for task in objs if task.cycle.is_current]
-
-    if not current_tasks:
-      return None
-
-    today = date.today()
-    overdue_tasks = any(task.end_date and
-                        task.end_date < today and
-                        task.status != "Verified"
-                        for task in current_tasks)
-
-    if overdue_tasks:
-      return "Overdue"
-
+    current_tasks = []
+    for task in objs:
+      if not task.cycle.is_current:
+        continue
+      if task.is_overdue:
+        return cls.OVERDUE
+      current_tasks.append(task)
     return cls._get_state(current_tasks)
 
   @classmethod
@@ -368,20 +524,16 @@ class WorkflowState(object):
       Name of the lowest workflow state, if there are any active cycles.
       Otherwise it returns None.
     """
-    current_cycles = [cycle for cycle in cycles if cycle.is_current]
-
-    if not current_cycles:
-      return None
-
-    today = date.today()
-    for cycle in current_cycles:
-      for task in cycle.cycle_task_group_object_tasks:
-        if (task.status != "Verified" and
-           task.end_date is not None and task.end_date < today):
-          return "Overdue"
-
+    current_cycles = []
+    for cycle_instance in cycles:
+      if not cycle_instance.is_current:
+        continue
+      for task in cycle_instance.cycle_task_group_object_tasks:
+        if task.is_overdue:
+          return cls.OVERDUE
+      current_cycles.append(cycle_instance)
     return cls._get_state(current_cycles)
 
-  @computed_property
+  @builder.simple_property
   def workflow_state(self):
     return WorkflowState.get_object_state(self.cycle_task_group_object_tasks)

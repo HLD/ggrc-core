@@ -1,21 +1,64 @@
 /*!
- Copyright (C) 2016 Google Inc., authors, and contributors
+ Copyright (C) 2017 Google Inc., authors, and contributors
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
-(function (_, can, GGRC) {
+(function (can) {
   'use strict';
 
-  var tpl = can.view(GGRC.mustache_path +
-    '/components/ca-object/ca-object.mustache');
+  var icons = {
+    noValidation: 'fa-check-circle',
+    empty: 'fa-times-circle validation-icon-empty',
+    valid: 'fa-check-circle validation-icon-valid',
+    invalid: 'fa-times-circle validation-icon-invalid'
+  };
 
-  GGRC.Components('customAttributesObject', {
+  var titles = {
+    noValidation: ' ',
+    empty: 'validation-title-empty',
+    valid: 'validation-title-valid',
+    invalid: 'validation-title-invalid'
+  };
+
+  can.Component.extend({
     tag: 'ca-object',
-    template: tpl,
-    scope: {
-      instance: null,
-      isModified: null,
-      valueId: '@',
+    viewModel: {
+      define: {
+        validation: {},
+        iconCls: {
+          value: icons.noValidation,
+          get: function () {
+            var icon = icons.noValidation;
+
+            if (this.attr('validation.mandatory')) {
+              icon = this.attr('validation.empty') ? icons.empty : icons.valid;
+            }
+            /* This validation is required for DropDowns with required attachments */
+            if (!this.attr('validation.valid')) {
+              icon = icons.invalid;
+            }
+            return icon;
+          }
+        },
+        titleCls: {
+          value: titles.noValidation,
+          get: function () {
+            var icon = titles.noValidation;
+
+            if (this.attr('validation.mandatory')) {
+              icon = this.attr('validation.empty') ?
+                                      titles.empty :
+                                      titles.valid;
+            }
+            /* This validation is required for DropDowns with required attachments */
+            if (!this.attr('validation.valid')) {
+              icon = titles.invalid;
+            }
+            return icon;
+          }
+        }
+      },
+      valueId: null,
       value: null,
       type: null,
       def: null,
@@ -24,50 +67,29 @@
         can.batch.start();
         this.attr('modal', {
           content: {
+            fields: ['comment'],
             value: this.attr('value'),
             title: this.attr('def.title'),
             type: this.attr('type')
           },
           caIds: {
             defId: this.attr('def.id'),
-            valueId: parseInt(this.attr('valueId'), 10)
+            valueId: this.attr('valueId')
           },
-          modalTitleText: 'Add comment',
-          fields: ['comment']
+          modalTitle: 'Add comment',
+          state: {}
         });
         can.batch.stop();
 
-        this.attr('modal.open', true);
-      },
-      setModified: function () {
-        this.attr('isModified', this.attr('def.id'));
-      },
-      save: function () {
-        var value = this.attr('value');
-        this.setModified();
-        this.attr('instance').save()
-          .done(function () {
-            // TODO: remove hack for flash message appearance after normal solution will be applied
-            if (String(value) === this.attr('value')) {
-              can.$(document.body).trigger('ajax:flash', {
-                success: 'Saved'
-              });
-            }
-          }.bind(this))
-          .fail(function (inst, err) {
-            GGRC.Errors.notifier('error')(err);
-          })
-          .always(function () {
-            this.attr('isSaving', false);
-          }.bind(this));
+        this.attr('modal.state.open', true);
       }
     },
     events: {
-      '{scope} isSaving': function (scope, ev, isSaving) {
+      '{viewModel} isSaving': function (scope, ev, isSaving) {
         if (isSaving) {
-          scope.save();
+          this.element.trigger('saveCustomAttribute', [scope]);
         }
       }
     }
   });
-})(window._, window.can, window.GGRC);
+})(window.can);

@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Integration test for custom attributable mixin"""
@@ -6,13 +6,13 @@
 from ggrc import db
 from ggrc import models
 
-import integration.ggrc
+from integration.ggrc import TestCase
 from integration.ggrc.models.factories import ProgramFactory
 from integration.ggrc.models.factories import \
     CustomAttributeDefinitionFactory as CAD
 
 
-class TestCustomAttributableMixin(integration.ggrc.TestCase):
+class TestCustomAttributableMixin(TestCase):
 
   """Test cases for functions in custom attributable mixin."""
 

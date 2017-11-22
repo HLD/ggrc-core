@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -12,27 +12,46 @@
       GGRC.mustache_path +
       '/components/datepicker/datepicker.mustache'
     ),
-    scope: {
+    viewModel: can.Map.extend({
       date: null,
       format: '@',
       helptext: '@',
-      isShown: false,
-      pattern: 'MM/DD/YYYY',
+      label: '@',
       setMinDate: null,
       setMaxDate: null,
-      _date: null,
-      required: '@',
+      _date: null,  // the internal value of the text input field
       define: {
-        label: {
-          type: 'string'
+        readonly: {
+          type: 'boolean',
+          value: false
+        },
+        disabled: {
+          type: 'boolean',
+          value: false
+        },
+        required: {
+          type: 'htmlbool',
+          value: false
         },
         persistent: {
           type: 'boolean',
-          'default': false
+          value: false
+        },
+        isShown: {
+          type: 'boolean',
+          value: false
+        },
+        noWeekends: {
+          type: 'boolean',
+          value: false
+        },
+        denyInput: {
+          type: 'boolean',
+          value: false
         }
       },
       onSelect: function (val, ev) {
-        this.attr('_date', val);
+        this.attr('date', val);
         this.attr('isShown', false);
       },
       onFocus: function (el, ev) {
@@ -42,41 +61,92 @@
         if (!GGRC.Utils.inViewport(this.picker)) {
           this.attr('showTop', true);
         }
-      }
-    },
+      },
+      removeValue: function (event) {
+        event.preventDefault();
+
+        this.picker.datepicker('setDate', null);
+        this.attr('date', null);
+      },
+      MOMENT_DISPLAY_FMT: GGRC.Date.MOMENT_DISPLAY_FMT,
+    }),
+
     events: {
       inserted: function () {
+        var viewModel = this.viewModel;
         var element = this.element.find('.datepicker__calendar');
-        var date = this.getDate(this.scope.date);
-
-        element.datepicker({
+        var minDate;
+        var maxDate;
+        var date;
+        var options = {
+          dateFormat: GGRC.Date.PICKER_ISO_DATE,
           altField: this.element.find('.datepicker__input'),
-          onSelect: this.scope.onSelect.bind(this.scope)
-        });
+          altFormat: GGRC.Date.PICKER_DISPLAY_FMT,
+          onSelect: this.viewModel.onSelect.bind(this.viewModel)
+        };
 
-        this.scope.attr('picker', element);
+        if (viewModel.attr('noWeekends')) {
+          options.beforeShowDay = can.$.datepicker.noWeekends;
+        }
 
-        this.scope.picker.datepicker('setDate', date);
-        if (this.scope.setMinDate) {
-          this.setDate('minDate', this.scope.setMinDate);
+        element.datepicker(options);
+        viewModel.attr('picker', element);
+
+        date = this.getDate(viewModel.attr('date'));
+        viewModel.picker.datepicker('setDate', date);
+
+        // set the boundaries of the dates that user is allowed to select
+        minDate = this.getDate(viewModel.setMinDate);
+        maxDate = this.getDate(viewModel.setMaxDate);
+        viewModel.attr('setMinDate', minDate);
+        viewModel.attr('setMaxDate', maxDate);
+
+        if (viewModel.setMinDate) {
+          this.updateDate('minDate', viewModel.setMinDate);
         }
-        if (this.scope.setMaxDate) {
-          this.setDate('maxDate', this.scope.setMaxDate);
+        if (viewModel.setMaxDate) {
+          this.updateDate('maxDate', viewModel.setMaxDate);
         }
-        this.scope._date = date;
       },
+
+      /**
+       * Convert given date to an ISO date string.
+       *
+       * @param {Date|string|null} date - the date to convert
+       * @return {string|null} - date in ISO format or null if empty or invalid
+       */
       getDate: function (date) {
         if (date instanceof Date) {
-          date = moment(date).format(this.scope.pattern);
-        } else if (!this.isValidDate(date)) {
-          date = null;
+          // NOTE: Not using moment.utc(), because if a Date instance is given,
+          // it is in the browser's local timezone, thus we need to take that
+          // into account to not end up with a different date. Ideally this
+          // should never happen, but that would require refactoring the way
+          // Date objects are created throughout the app.
+          return moment(date).format(GGRC.Date.MOMENT_ISO_DATE);
+        } else if (this.isValidDate(date)) {
+          return date;
         }
-        return date;
+
+        return null;
       },
+
       isValidDate: function (date) {
-        return moment(date, this.scope.pattern, true).isValid();
+        return moment(date, GGRC.Date.MOMENT_ISO_DATE, true).isValid();
       },
-      setDate: function (type, date) {
+
+      /**
+       * Change the min/max date allowed to be picked.
+       *
+       * @param {string} type - the setting to change ("minDate" or "maxDate").
+       *   The value given is automatically adjusted for a day as business
+       *   rules dictate.
+       * @param {Date|string|null} date - the new value of the `type` setting.
+       *   If given as string, it must be in ISO date format.
+       * @return {Date|null} - the new date value
+       */
+      updateDate: function (type, date) {
+        var viewModel = this.viewModel;
+
         var types = {
           minDate: function () {
             date.add(1, 'day');
@@ -85,32 +155,86 @@
             date.subtract(1, 'day');
           }
         };
-        date = moment(date);
+
+        if (!date) {
+          viewModel.picker.datepicker('option', type, null);
+          return null;
+        }
+
+        if (date instanceof Date) {
+          // NOTE: Not using moment.utc(), because if a Date instance is given,
+          // it is in the browser's local timezone, thus we need to take that
+          // into account to not end up with a different date. Ideally this
+          // should never happen, but that would require refactoring the way
+          // Date objects are created throughout the app.
+          date = moment(date).format(GGRC.Date.MOMENT_ISO_DATE);
+        }
+        date = moment.utc(date);
 
         if (types[type]) {
           types[type]();
         }
-        this.scope.picker.datepicker('option', type, date.toDate());
+        date = date.toDate();
+        viewModel.picker.datepicker('option', type, date);
+        return date;
       },
-      '{scope} setMinDate': function (scope, ev, date) {
-        this.setDate('minDate', date);
+
+      /**
+       * Prepeare date to ISO format.
+       *
+       * @param {Object} viewModel - viewModel of the Component
+       * @param {string|null} val - the new value of the date setting.
+       *   If given as string, it must be in ISO date format.
+       * @return {string|null} - the new date value
+       */
+      prepareDate: function (viewModel, val) {
+        var valISO = null;
+        var valF = null;
+
+        if (val) {
+          val = val.trim();
+          valF = moment.utc(val, GGRC.Date.MOMENT_DISPLAY_FMT, true);
+          valISO = valF.isValid() ?
+            valF.format(GGRC.Date.MOMENT_ISO_DATE) :
+            null;
+        }
+        return valISO;
       },
-      '{scope} setMaxDate': function (scope, ev, date) {
-        this.setDate('maxDate', date);
+
+      '{viewModel} setMinDate': function (viewModel, ev, date) {
+        var currentDateObj = null;
+        var updated = this.updateDate('minDate', date);
+
+        if (viewModel.date) {
+          currentDateObj = moment.utc(viewModel.date).toDate();
+          if (currentDateObj < updated) {
+            this.viewModel.attr(
+              '_date',
+              moment.utc(updated).format(GGRC.Date.MOMENT_DISPLAY_FMT));
+          }
+        }
       },
-      '{scope} _date': function (scope, ev, val) {
-        scope.attr('date', val);
+
+      '{viewModel} setMaxDate': function (viewModel, ev, date) {
+        this.updateDate('maxDate', date);
       },
+
+      '{viewModel} _date': function (viewModel, ev, val) {
+        var valISO = this.prepareDate(viewModel, val);
+        viewModel.attr('date', valISO);
+        viewModel.picker.datepicker('setDate', valISO);
+      },
+
       '{window} mousedown': function (el, ev) {
         var isInside;
 
-        if (this.scope.attr('persistent')) {
+        if (this.viewModel.attr('persistent')) {
           return;
         }
         isInside = GGRC.Utils.events.isInnerClick(this.element, ev.target);
 
-        if (this.scope.isShown && !isInside) {
-          this.scope.attr('isShown', false);
+        if (this.viewModel.isShown && !isInside) {
+          this.viewModel.attr('isShown', false);
         }
       }
     },
@@ -123,4 +247,4 @@
       }
     }
   });
-})(window.can, window.GGRC, window.moment);
+})(window.can, window.GGRC, moment);

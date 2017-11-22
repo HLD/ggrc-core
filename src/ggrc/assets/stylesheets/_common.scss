@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -8,10 +8,19 @@ body {
     padding-left: 0;
     padding-right: 0;
   }
+  font-family: $fontTitle;
+}
+
+input, button, select, textarea {
+  font-family: $fontTitle;
 }
 
 select {
   padding: 0;
+}
+
+a {
+  color: $link;
 }
 
 .bottom-space {
@@ -49,7 +58,7 @@ select {
 .objective-selector {
   .search-icon {
     @include background-size(21px 16px);
-    background-image: image-url("magnifying-glass.png");
+    background-image: url("../images/magnifying-glass.png");
     background-repeat: no-repeat;
     background-position: right center;
     padding-right: 28px;
@@ -61,25 +70,35 @@ select {
 
 .tooltip {
   // The bootstrap default is incorrect with modals as of bootstrap 2.0.x
+  white-space: pre-line;
   z-index: zIndex(tooltip) !important;
+  word-wrap: break-word;
+}
+
+.need-comma {
+  &:after {
+    content: ",";
+  }
+  &:last-child:after {
+    content: none;
+  }
 }
 
 // status
 .status-label {
-  @include border-radius($default-border-radius);
+  border-radius: 50%;
   width: 8px;
   height: 8px;
   float: left;
   margin: 9px 10px 0 10px;
   background: $status-draft;
+
   .entry-list & {
     margin: 5px 10px 0 4px !important;
   }
-  .openclose__empty & {
-    margin: 16px 10px 0 10px;
-  }
+  .openclose__empty &,
   .inner-tree &,
-  .inner-tree .openclose__empty & {
+  .inner-tree .openclose__empty {
     margin: 10px 5px 0 10px;
   }
 
@@ -96,33 +115,49 @@ select {
 
 // buttons
 .btn-info-pin-header {
+
   margin-right: 10px;
   &.undo {
     margin-right: 10px;
     margin-top: 6px;
+    &.btn-link {
+        margin:0 ;
+        background: transparent;
+        box-shadow: none;
+        color: $link;
+
+        &:hover {
+          color: $darkBlue;
+        }
+      }
   }
   .sticky-info-panel & {
-    margin-top: 18px;
+    margin-top: 30px;
     &.undo {
       margin-top: 22px;
+      &.btn-link {
+        margin-top: 30px;
+        background: transparent;
+        box-shadow: none;
+        color: $link;
+
+        &:hover {
+          color: $darkBlue;
+        }
+      }
     }
   }
 }
 .btn {
-  @include btn-size();
-  font-weight: bold;
-  border: none;
-  @include box-shadow(none);
-  text-shadow: none;
+  @include btn-size(12px);
+
   &.btn-small {
     @include btn-size(12px, 18px, 4px 14px);
   }
   &.btn-mini {
-    @include btn-size(11px, 16px, 2px 12px);
+    @include btn-size(11px, 16px, 2px 10px);
   }
-  [class*="fa-"] {
-    @include opacity(0.7);
-  }
+
   &.btn-full {
     text-align: center;
     width: 100%;
@@ -133,24 +168,19 @@ select {
     text-align: center;
   }
   &:active {
-    @include box-shadow(inset 0 0 4px rgba(0,0,0,0.4));
-    [class*="fa-"] {
-      @include opacity(1);
-    }
-  }
-  &.btn-footer {
-    margin-top: 4px;
+    box-shadow: inset 0 0 4px rgba(0,0,0,0.4);
   }
   &.pending-ajax {
-    @include box-shadow(none);
+    box-shadow: none;
     cursor: default;
-    background:$widgetHeaderBgnd image-url('ajax-loader.gif') no-repeat 5px 6px;
+    background:$widgetHeaderBgnd url('../images/ajax-loader.gif') no-repeat 5px 6px;
     border: 1px solid $ajaxBtnDisabled;
     text-shadow: none;
     padding-left: 28px;
+
     &:active {
-      @include box-shadow(none);
-      background:$widgetHeaderBgnd image-url('ajax-loader.gif') no-repeat 5px 5px;
+      box-shadow: none;
+      background:$widgetHeaderBgnd url('../images/ajax-loader.gif') no-repeat 5px 5px;
       border: 1px solid $ajaxBtnDisabled;
     }
   }
@@ -161,12 +191,6 @@ select {
     @extend %btn-#{$btn_color};
   }
 }
-
-// Disabled state
-.btn.disabled, .btn[disabled] {
-  @include opacity(0.25);
-}
-
 // removing outline on anchor element
 .nav-tabs,
 .menu,
@@ -174,6 +198,11 @@ select {
   a {
     @extend %outline-fix;
   }
+}
+
+.disabled-original {
+  color: black;
+  opacity: 0.4;
 }
 
 // show hide
@@ -251,7 +280,7 @@ select.input-block-level {
     background-color:#fff;
     border-top:1px solid #aaa;
     border-bottom:1px solid #aaa;
-    background-image: image-url("bgnds/drag-h.png");
+    background-image: url("../images/bgnds/drag-h.png");
     background-repeat:no-repeat;
     background-position:50% 1px;
     &:hover {
@@ -303,6 +332,9 @@ select.input-block-level {
   label {
     color: $red;
   }
+  select {
+    border: 1px solid $red;
+  }
   .help-inline {
     margin: -8px 0 8px 0;
     display: block;
@@ -315,7 +347,7 @@ select.input-block-level {
 
 // AJAX loading gif
 input.disabled.pending-ajax{
-  background: $lightGray image-url("ajax-loader.gif") no-repeat right center;
+  background: $lightGray url("../images/ajax-loader.gif") no-repeat right center;
 }
 
 // Left dropdown positioning
@@ -359,11 +391,11 @@ input.disabled.pending-ajax{
   }
   // smaller buttons in wysiwyg editor
   .btn {
-    @include opacity(0.5);
-    padding:0px 5px 2px 5px;
-    font-size:$f-small;
+    opacity: 0.5;
+    padding: 0 5px 2px 5px;
+    font-size: $f-small;
     &:hover {
-      @include opacity(1);
+      opacity: 1;
     }
   }
   .help-inline {
@@ -673,7 +705,7 @@ p {
     display: inline-block;
     text-transform: none;
     color: $white;
-    font-weight: bold;
+    font-weight: normal;
   }
   .close-dropdown {
     padding: 0;
@@ -702,16 +734,130 @@ p {
 // State values
 .state-value {
   text-transform: uppercase;
-  font-weight: bold;
+  font-weight: normal;
   background: $stateBgnd;
-  color: $stateText;
+  color: $white;
   padding: 0 4px;
   .tree-title-area & {
     font-weight: normal;
   }
   .pane-header & {
     display: inline-block;
-    margin-top: 4px;
+    margin-top: 2px;
+    padding-top: 2px;
+  }
+  &.state-notstarted,
+  &.state-draft,
+  &.state-assigned,
+  &.state-planned,
+  &.state-archived {
+    background: $status-draft;
+  }
+  &.state-inprogress {
+    background: $status-inprogress;
+  }
+  &.state-inreview,
+  &.state-managerreview {
+    background: $status-inreview;
+  }
+  &.state-active,
+  &.state-verified,
+  &.state-readyforexternalreview {
+    background: $status-verified;
+  }
+  &.state-inactive,
+  &.state-finished,
+  &.state-completed {
+    background: $status-completed;
+  }
+  &.state-declined,
+  &.state-deprecated {
+    background: $status-declined;
+  }
+  &.state-reworkneeded {
+    background: $status-reworkneeded;
+  }
+}
+.state-value-dot {
+  position: relative;
+  padding-left: 12px;
+
+  &:before {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    display: inline-block;
+    left: 0;
+    top: 3px;
+    border-radius: 50%;
+  }
+
+  .grid-data-row & {
+    display: inline-block;
+
+    &:before {
+      top: 4px;
+    }
+  }
+
+  &.state-notstarted,
+  &.state-draft,
+  &.state-assigned,
+  &.state-planned {
+    color: $status-draft;
+
+    &:before {
+      background: $status-draft;
+    }
+  }
+  &.state-inprogress {
+    color: $status-inprogress;
+
+    &:before {
+      background: $status-inprogress;
+    }
+  }
+  &.state-inreview,
+  &.state-managerreview {
+    color: $status-inreview;
+
+    &:before {
+      background: $status-inreview;
+    }
+  }
+  &.state-active,
+  &.state-verified,
+  &.state-readyforexternalreview {
+    color: $status-verified;
+
+    &:before {
+      background: $status-verified;
+    }
+  }
+  &.state-inactive,
+  &.state-finished,
+  &.state-completed {
+    color: $status-completed;
+
+    &:before {
+      background: $status-completed;
+    }
+  }
+  &.state-declined,
+  &.state-deprecated {
+    color: $status-declined;
+
+    &:before {
+      background: $status-declined;
+    }
+  }
+  &.state-reworkneeded {
+    color: $status-reworkneeded;
+
+    &:before {
+      background: $status-reworkneeded;
+    }
   }
 }
 
@@ -883,4 +1029,28 @@ p {
     margin-right: 5px;
     width: 70%;
   }
+}
+
+.three-dots-list {
+  & > li {
+    a,
+    .unmap-link {
+      color: #000 !important;
+    }
+
+    .fa {
+      color: #000 !important;
+      opacity: 0.7 !important;
+    }
+  }
+}
+
+.person-without-details {
+  font-style: italic;
+  color: black;
+}
+
+.alert.alert-nomargin {
+    margin-top: 0px;
+    margin-bottom: 0px;
 }

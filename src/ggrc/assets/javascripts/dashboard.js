@@ -1,7 +1,9 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
+
+import Spinner from 'spin.js';
 
 // Initialize delegated event handlers
 jQuery(function ($) {
@@ -92,6 +94,20 @@ jQuery(function ($) {
       data = $.extend({}, $this.data('context') || {}, $this.data());
       $(target).tmpl_mergeitems([data]);
     }
+  });
+
+  $('body').on('click', '[data-toggle="nested-dropdown"]', function (e) {
+    var $parent = $(this).parent();
+    var isActive = $parent.hasClass('open');
+    if (!isActive) {
+      $parent.toggleClass('open');
+    }
+    e.stopPropagation();
+    e.preventDefault();
+  });
+
+  $('html').on('click.dropdown.data-api', function (e) {
+    $('[data-toggle="nested-dropdown"]').parent().removeClass('open');
   });
 });
 
@@ -390,6 +406,8 @@ function resize_areas(event, target_info_pin_height) {
     .css('height', internavHeight)
     .css('width', objectWidth);
 
+  $objectArea.trigger('change');
+
   function object_area_height() {
     var height = winHeight - not_main_elements_height();
     var nav_pos = $topNav.css('top') ?
@@ -416,14 +434,10 @@ function resize_areas(event, target_info_pin_height) {
                 return m + h;
               }, 0);
 
-    var pin_height = $.isNumeric(target_info_pin_height) ?
-                   target_info_pin_height :
-                   $pin.height();
-
     // the 5 gives user peace of mind they've reached bottom
     var UIHeight = [$topNav.height(), $header.height(),
                       $footer.height(),
-                      margins, pin_height, 5]
+                      margins, 5]
               .reduce(function (m, h) {
                 return m + h;
               }, 0);

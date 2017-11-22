@@ -1,7 +1,10 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
+
+import './widget_descriptor';
+import SummaryWidgetController from '../controllers/summary_widget_controller';
 
 (function ($, CMS, GGRC) {
   /*
@@ -17,7 +20,7 @@
     See the comments for GGRC.WidgetDescriptor for details in what is necessary to define
     a widget descriptor.
   */
-  can.Construct('GGRC.WidgetList', {
+  can.Construct.extend('GGRC.WidgetList', {
     modules: {},
     /*
       get_widget_list_for: return a keyed object of widget descriptors for the specified page type.
@@ -42,39 +45,53 @@
       });
 
       can.each(widgets, function (widget, widgetId) {
-        switch (widget.content_controller) {
-          case GGRC.Controllers.InfoWidget:
-            descriptors[widgetId] = GGRC.WidgetDescriptor.make_info_widget(
-              widget.content_controller_options && widget.content_controller_options.instance || widget.instance,
-              widget.content_controller_options && widget.content_controller_options.widget_view || widget.widget_view
-            );
-            break;
-          case GGRC.Controllers.SummaryWidget:
-            descriptors[widgetId] = GGRC.WidgetDescriptor.make_summary_widget(
-              widget.content_controller_options &&
-              widget.content_controller_options.instance ||
-              widget.instance,
-              widget.content_controller_options &&
-              widget.content_controller_options.widget_view ||
-              widget.widget_view
-            );
-            break;
-          case GGRC.Controllers.TreeView:
-            descriptors[widgetId] = GGRC.WidgetDescriptor.make_tree_view(
-              widget.content_controller_options && (widget.content_controller_options.instance || widget.content_controller_options.parent_instance) || widget.instance,
-              widget.content_controller_options && widget.content_controller_options.model || widget.far_model || widget.model,
-              widget.content_controller_options && widget.content_controller_options.mapping || widget.mapping,
-              widget
-            );
-            break;
-          default:
-            descriptors[widgetId] = new GGRC.WidgetDescriptor(
-                pageType + ':' + widgetId, widget);
+        var ctrl = widget.content_controller;
+        var options = widget.content_controller_options;
+
+        if (ctrl && ctrl === GGRC.Controllers.InfoWidget) {
+          descriptors[widgetId] = GGRC.WidgetDescriptor.make_info_widget(
+            options && options.instance || widget.instance,
+            options && options.widget_view || widget.widget_view
+          );
+        } else if (ctrl && ctrl === SummaryWidgetController) {
+          descriptors[widgetId] = GGRC.WidgetDescriptor.make_summary_widget(
+            options &&
+            options.instance ||
+            widget.instance,
+            options &&
+            options.widget_view ||
+            widget.widget_view
+          );
+        } else if (ctrl && ctrl === GGRC.Controllers.DashboardWidget) {
+          descriptors[widgetId] = GGRC.WidgetDescriptor.make_dashboard_widget(
+            options &&
+            options.instance ||
+            widget.instance,
+            options &&
+            options.widget_view ||
+            widget.widget_view
+          );
+        } else if (ctrl && ctrl === GGRC.Controllers.TreeView) {
+          descriptors[widgetId] = GGRC.WidgetDescriptor.make_tree_view(
+            options && (options.instance || options.parent_instance) || widget.instance,
+            options && options.model || widget.far_model || widget.model,
+            widget
+          );
+        } else if (widget.widgetType === 'treeview') {
+          descriptors[widgetId] = GGRC.WidgetDescriptor.make_tree_view(
+            options && (options.instance || options.parent_instance) || widget.instance,
+            options && options.model || widget.far_model || widget.model,
+            widget,
+            widgetId
+          );
+        } else {
+          descriptors[widgetId] = new GGRC.WidgetDescriptor(
+            pageType + ':' + widgetId, widget);
         }
       });
 
       can.each(descriptors, function (descriptor, id) {
-        if (descriptor.suppressed) {
+        if (!descriptor || descriptor.suppressed) {
           delete descriptors[id];
         }
       });
@@ -129,4 +146,4 @@
       }
     }
   });
-})(this.can.$, this.CMS, this.GGRC);
+})(window.can.$, window.CMS, window.GGRC);

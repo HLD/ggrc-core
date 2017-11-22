@@ -1,9 +1,9 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
-&.get-started {
+.get-started {
   &__header {
     margin: 6px 0 4px;
     h2 {
@@ -45,6 +45,7 @@
       height: 35px;
       display: block;
       background: $white;
+      color: $dashboardBlue;
       &:hover {
         text-decoration: none;
         background: $blue;

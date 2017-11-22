@@ -1,11 +1,17 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
 .people-list__label {
   .modal-body & {
     display: none;
+  }
+}
+
+people-list {
+  .alert-verifier {
+    border-width: 2px;
   }
 }
 
@@ -88,18 +94,11 @@
   }
 }
 
-.people-group {
-  padding-bottom: 16px;
-}
-
 .label-list {
   @extend %reset-list;
   > li {
     margin-bottom: 10px;
     @extend %clearfix;
-    &:last-child {
-      margin-bottom: 0;
-    }
   }
   &.dates {
     > li {
@@ -111,11 +110,19 @@
           left: -25px;
         }
       }
+      &.gray {
+        h6 {
+          color: $gray;
+        }
+      }
     }
+  }
+  i.fa {
+    color: #4caf50;
+    opacity: 1;
   }
   i {
     @include opacity(.6);
-    @include transition(opacity .2s ease);
   }
   a {
     &:hover {
@@ -142,6 +149,16 @@
       .file-controls {
         @include opacity(1);
         left: -25px;
+      }
+    }
+    &.people-group {
+      float: none;
+      width: auto;
+      .people-group_title {
+        font-weight: bold;
+      }
+      .person-add {
+        padding-left: 16px;
       }
     }
     .modal-body & {

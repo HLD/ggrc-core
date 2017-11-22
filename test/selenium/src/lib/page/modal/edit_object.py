@@ -1,71 +1,65 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
-
-"""Modals for editing objects"""
+"""Modals for edit objects."""
 
 from lib import decorator
 from lib.constants import locator
-from lib.page.modal import delete_object
-from lib.page.modal import base as modal_base
+from lib.page.modal import base as modal_base, delete_object
+from lib.utils import selenium_utils
 
 
 class _EditModal(modal_base.BaseModal):
-  _button_delete_locator = locator.ModalEditObject.BUTTON_DELETE
+  """Modal for edit objects."""
 
   def delete_object(self):
+    """Return: delete_object.DeleteObjectModal
     """
-    Returns:
-        delete_object.DeleteObjectModal
-    """
-    self._driver.find_element(*self._button_delete_locator).click()
+    self._driver.find_element(*locator.ModalEditObject.BUTTON_DELETE).click()
     return delete_object.DeleteObjectModal(self._driver)
 
   @decorator.handle_alert
   def save_and_close(self):
-    """Saves this object"""
+    """Edit object and close Edit modal."""
     self.button_save_and_close.click()
+    selenium_utils.wait_until_not_present(
+        self._driver, self._locator_button_save)
+
+
+class Assessments(modal_base.AsmtsModal, _EditModal):
+  """Assessments edit modal."""
 
 
 class Programs(modal_base.ProgramsModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a program object and selecting edit"""
+  """Programs edit modal."""
 
 
 class Controls(modal_base.ControlsModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a control object and selecting edit"""
+  """Controls edit modal."""
 
 
 class Risks(modal_base.RisksModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a risk object and selecting edit"""
+  """Risks edit modal."""
 
 
 class OrgGroups(modal_base.OrgGroupsModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a org group object and selecting edit"""
+  """Org Groups edit modal."""
 
 
 class Processes(modal_base.ProcessesModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a process object and selecting edit"""
+  """Processes edit modal."""
 
 
 class DataAssets(modal_base.RisksModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a data asset object and selecting edit"""
+  """Data Assets edit modal."""
 
 
 class Systems(modal_base.RisksModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a system object and selecting edit"""
+  """Systems edit modal."""
 
 
 class Products(modal_base.ProductsModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a product object and selecting edit"""
+  """Products edit modal."""
 
 
 class Projects(modal_base.ProjectsModal, _EditModal):
-  """Class representing a modal visible after clicking the settings button
-  in the info widget of a project object and selecting edit"""
+  """Projects edit modal."""

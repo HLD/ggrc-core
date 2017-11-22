@@ -1,23 +1,10 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
-;(function(CMS, GGRC, can, $) {
-
-  function is_overdue_task(task) {
-    var end_date = new Date(task.instance.end_date || null),
-        today = new Date();
-
-    //Any task that is not finished or verified are subject to overdue
-    if (task.instance.status === "Finished" || task.instance.status === "Verified")
-      return false;
-    // TODO: [Overdue] Move this logic to helper.
-    else if (end_date.getTime() < today.getTime())
-      return true;
-  }
-
-  can.Component.extend({
+;(function (CMS, GGRC, can, $) {
+  GGRC.Components('dashboardWidgets', {
     tag: "dashboard-widgets",
     template: "<content/>",
     scope: {
@@ -135,23 +122,26 @@
             else if (end_date.getTime() < first_end_date.getTime())
               first_end_date = end_date;
 
-            //Any task not verified is subject to overdue
-            if (data.status === 'Verified')
-              verified++;
-            else {
-              // TODO: [Overdue] Move this logic to helper.
-              if (end_date.getTime() < today.getTime()) {
-                over_due++;
-                $('dashboard-errors').control().scope.attr('error_msg', 'Some tasks are overdue!');
-              }
-              else if (data.status === 'Finished')
+            if (data.isOverdue) {
+              over_due++;
+              GGRC.Errors.notifier('error', 'Some tasks are overdue!');
+            }
+            switch (data.status) {
+              case 'Verified':
+                verified++;
+                break;
+              case 'Finished':
                 finished++;
-              else if (data.status === 'InProgress')
+                break;
+              case 'InProgress':
                 in_progress++;
-              else if (data.status === 'Declined')
+                break;
+              case 'Declined':
                 declined++;
-              else
+                break;
+              case 'Assigned':
                 assigned++;
+                break;
             }
           }
           //Update Task_data object for workflow and Calculate %
@@ -179,6 +169,8 @@
               var day_in_milli_secs = 24 * 60 * 60 * 1000;
               task_data.days_left_for_first_task = Math.floor(time_interval/day_in_milli_secs);
             }
+            task_data.completed_percentage = workflow.is_verification_needed ?
+              task_data.verified_percentage : task_data.finished_percentage;
 
             //set overdue flag
             task_data.over_due_flag = over_due ? true : false;
@@ -217,13 +209,4 @@
     }
 
   });
-
-  can.Component.extend({
-    tag: "dashboard-errors",
-    template: "<content/>",
-    scope: {
-      error_msg: '',
-    }
-  });
-
-})(this.CMS, this.GGRC, this.can, this.can.$);
+})(window.CMS, window.GGRC, window.can, window.can.$);

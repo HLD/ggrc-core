@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -7,7 +7,8 @@
   h3 {
     max-width: 80%;
     float: left;
-    margin-right: 10px;
+    margin-right: 8px;
+    word-wrap: break-word;
   }
   &.pane-header__fixed {
     right: 52px;
@@ -32,26 +33,23 @@
   float: right;
   li {
     float: left;
-    margin-left: 8px;
-    margin-top: 2px;
-    &:last-child {
-      margin-top: 0;
-    }
-    &:first-child {
-      margin-left: 0;
-    }
     a {
+      width: 26px;
+      height: 26px;
+      line-height: 26px;
+      text-align: center;
       i {
-        @include opacity(.25);
-        &.active {
-          @include opacity(1);
-        }
+        position: relative;
+        top: 1px;
+        color: #797979;
+      }
+      &.close-pane i {
+        font-size: 20px;
+        top: 2px;
       }
       &.active,
       &:hover {
-        i {
-          @include opacity(1);
-        }
+        background-color: #eeeeee;
       }
     }
   }
@@ -92,9 +90,7 @@
     padding-top: 9px;
     padding-bottom: 9px;
   }
-  .pin-content & {
-    margin-top: 4px;
-  }
+
   a {
     display: block;
   }
@@ -135,16 +131,17 @@
       float:none;
       clear: both;
       text-transform: none;
-      a {
+      a,
+      .unmap-link {
         @include transition(background 0.2s ease, color 0.2s ease);
         display: block;
         line-height: 30px;
         padding: 0 10px;
         background: none;
         text-shadow: none;
-        color: $gray;
+        color: $black;
         i {
-          @include opacity(0.4);
+          @include opacity(0.7);
           @include transition(opacity 0.2s ease);
           margin: 7px 4px 0 0;
         }
@@ -152,6 +149,7 @@
         &.clipboard-is-hover {
           background: $headerBgnd;
           color: $black;
+          cursor: pointer;
           i {
             @include opacity(1);
           }
@@ -169,6 +167,11 @@
         padding-top: 5px;
         margin-top: 5px;
       }
+      &.border-bottom {
+        border-bottom: 1px solid $headerBgnd;
+        padding-bottom: 5px;
+        margin-bottom: 5px;
+      }
     }
   }
   &.status-wrap {
@@ -183,6 +186,40 @@
     .dropdown-menu {
       right: auto;
       left: 0;
+    }
+  }
+}
+
+.navigation-wrap {
+  display: flex;
+  margin-left: 10px;
+
+  > .navigation-item {
+    line-height: 27px;
+
+    > a {
+      border: 1px solid #ccc;
+      background: #fff;
+      color: $black;
+      cursor: pointer;
+      padding: 6px 10px;
+      text-decoration: none;
+
+      &:hover {
+        background: $warmGray;
+      }
+
+      &.disabled {
+        color: $disabled;
+        cursor: default;
+        opacity: 0.7;
+      }
+    }
+
+    & + .navigation-item {
+      > a {
+        border-left: none;
+      }
     }
   }
 }

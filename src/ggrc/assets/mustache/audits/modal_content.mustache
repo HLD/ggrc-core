@@ -1,5 +1,5 @@
 {{!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
 
@@ -48,13 +48,33 @@
       </div>
       <div class="span3">
         <label>
-          Internal Audit Lead
+          Audit Captain
           <span class="required">*</span>
         </label>
         <i class="fa fa-person green pull-left icon-field"></i>
         <div class="objective-selector">
           {{#using contact=instance.contact}}
-            <input data-id="internal_audit_lead" tabindex="3" type="text" name="contact.email" data-lookup="Person" class="span10 audit-selector search-icon" placeholder="Enter text to search for Internal Audit Lead" value="{{firstnonempty contact.email ''}}">
+            {{^if_config_exist 'external_services.Person'}}
+            <input data-id="audit_lead" tabindex="3" type="text" name="contact.email" data-lookup="Person" class="span10 audit-selector search-icon" placeholder="Enter text to search for Audit Captain" value="{{firstnonempty contact.email ''}}">
+            {{else}}
+            <inline-autocomplete-wrapper
+              class="inline-block"
+              {instance}="instance"
+              {path}="'contact'"
+              {display-prop}="'email'"
+              {text-value}="contact.email">
+              <external-data-autocomplete
+                {type}="'Person'"
+                {extra-css-class}="'audit-selector search-icon'"
+                {placeholder}="'Enter text to search for Audit Captain'"
+                (item-selected)="setItem(%event.selectedItem)"
+                (criteria-changed)="updateTransient(%event.value)"
+                {auto-clean}="false"
+                {min-length}="2"
+                {search-criteria}="textValue">
+              </external-data-autocomplete>
+            </inline-autocomplete-wrapper>
+            {{/if_config_exist}}
           {{/using}}
         </div>
       </div>
@@ -94,7 +114,7 @@
       </div>
       <div data-id="planned_report_period_from_hidden" class="span6 hidable">
         <label>
-          Planned Report Period (from - to):
+          Report Period:
           <a data-id="hide_planned_report_period_from_lk" href="javascript://" class="field-hide" tabindex="-1">hide</a>
         </label>
         <div class="row-fluid">
@@ -159,16 +179,30 @@
                   <p>No auditor assigned</p>
                 {{/if}}
               {{#toggle show_new_object_form}}
-                {{#prune_context}}
+                {{^if_config_exist 'external_services.Person'}}
+                  {{#prune_context}}
                   <div class="span12 objective-selector field-wrap">
                     <input tabindex="11" type="text" data-lookup="Person" null-if-empty="true" class="search-icon" placeholder="Enter text to search for Auditor" {{autocomplete_select}} value="{{instance.email}}">
                     <a class="remove-field" href="javascript://" {{toggle_button}}><i class="fa fa-trash"></i></a>
 
                   </div>
-                  <input type="hidden" name="role_name" value="Auditor" />
                   {{/prune_context}}
+                {{else}}
+                  <div class="autocomplete-field">
+                    <external-data-autocomplete
+                      {type}="'Person'"
+                      {extra-css-class}="'search-icon'"
+                      {placeholder}="'Enter text to search for Auditor'"
+                      {auto-clean}="false"
+                      {min-length}="2"
+                      (item-selected)="controller.autocomplete_select(null,null, {item=%event.selectedItem})">
+                    </external-data-autocomplete>
+                    <a class="remove-field" href="javascript://" {{toggle_button}}><i class="fa fa-trash"></i></a>
+                  </div>
+                {{/if_config_exist}}
+                <input type="hidden" name="role_name" value="Auditor" />
               {{else}}
-                <a data-id="add_auditor" href="javascript://" class="btn btn-small btn-draft" tabindex="11" {{toggle_button}}>+ Add Auditor</a>
+                <a data-id="add_auditor" href="javascript://" class="btn btn-small btn-white" tabindex="11" {{toggle_button}}>Add Auditor</a>
 
               {{/toggle}}
               </ggrc-modal-connector>
@@ -199,7 +233,7 @@
       <div data-id="code_hidden" class="span4 hidable">
         <label>
           Code
-          <i class="fa fa-question-circle" rel="tooltip" title="The gGRC application will automatically provide codes for new objects.  If you would like to override this feature you may manually enter a code of your choosing.  You should have a specific reason for doing this."></i>
+          <i class="fa fa-question-circle" rel="tooltip" title="The GGRC application will automatically provide codes for new objects.  If you would like to override this feature you may manually enter a code of your choosing.  You should have a specific reason for doing this."></i>
           <a data-id="hide_code_lk" href="javascript://" class="field-hide" tabindex="-1">hide</a>
         </label>
         <input data-id="code_txtbx" tabindex="8" class="input-block-level" name="slug" placeholder="AUDIT-XXX" type="text" value="{{instance.slug}}">

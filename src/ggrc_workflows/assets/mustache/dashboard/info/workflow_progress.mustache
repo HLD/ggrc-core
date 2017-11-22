@@ -1,5 +1,5 @@
 {{!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
 
@@ -42,14 +42,15 @@
                 {{#if ins.task_data.declined_percentage}}
                   <div class="bar bar-decline" style="width: {{ins.task_data.declined_percentage}}%;" rel="tooltip" data-original-title="Declined {{ins.task_data.declined_percentage}}%"></div>
                 {{/if}}
-                {{#if ins.task_data.over_due_percentage}}
-                  <div class="bar bar-warning" style="width: {{ins.task_data.over_due_percentage}}%;" rel="tooltip" data-original-title="Overdue {{ins.task_data.over_due_percentage}}%"></div>
-                {{/if}}
               </div>
               <ul class="item-util">
-                <li>
-                  {{ins.task_data.task_count}} tasks in total / {{ins.task_data.verified_percentage}}% completed
-                </li>
+                {{#if ins.task_data.over_due_flag}}
+                  <li class="overdue-text">
+                    {{ins.task_data.over_due}} of {{ins.task_data.task_count}} tasks are overdue / {{ins.task_data.completed_percentage}}% completed
+                  </li>
+                {{else}}
+                  <li>{{ins.task_data.task_count}} tasks in total / {{ins.task_data.completed_percentage}}% completed</li>
+                {{/if}}
               </ul>
             </div>
           </div>

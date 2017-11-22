@@ -34,11 +34,12 @@ from ggrc import settings
 # ones.
 extensions = [
     'sphinx.ext.extlinks',
+    'sphinx.ext.graphviz',
 ]
 
 extlinks = {
     'src': (
-        'https://github.com/google/ggrc-core/tree/develop/src/%s',
+        'https://github.com/google/ggrc-core/tree/dev/src/%s',
         'src/',
     ),
 }
@@ -61,7 +62,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'GGRC'
-copyright = u'2016, Google Inc.'
+copyright = u'2017, Google Inc.'
 author = u'Google Inc.'
 
 # The version info for the project you're documenting, acts as replacement for

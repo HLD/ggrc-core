@@ -1,5 +1,6 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+"""A module with permissions json for Workflow Owner."""
 
 scope = "Workflow"
 description = """
@@ -19,7 +20,6 @@ permissions = {
         "UserRole",
         "Context",
         "Document",
-        "ObjectDocument",
         "ObjectFolder",
         "ObjectFile",
     ],
@@ -36,7 +36,6 @@ permissions = {
         "CycleTaskEntry",
         "UserRole",
         "Document",
-        "ObjectDocument",
         "ObjectFolder",
         "ObjectFile",
     ],
@@ -53,7 +52,6 @@ permissions = {
         "CycleTaskEntry",
         "UserRole",
         "Document",
-        "ObjectDocument",
         "ObjectFolder",
         "ObjectFile",
     ],
@@ -66,11 +64,17 @@ permissions = {
         "Cycle",
         "CycleTaskGroup",
         "CycleTaskGroupObject",
-        "CycleTaskGroupObjectTask",
+        {
+            "type": "CycleTaskGroupObjectTask",
+            "terms": {
+                "property_name": "cycle.is_current",
+                "value": True
+            },
+            "condition": "is"
+        },
         "CycleTaskEntry",
         "UserRole",
         "Document",
-        "ObjectDocument",
         "ObjectFolder",
         "ObjectFile",
     ],

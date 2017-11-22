@@ -1,11 +1,11 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Test import and export of objects with custom attributes."""
 
 from flask.json import dumps
 
-from integration.ggrc.converters import TestCase
+from integration.ggrc import TestCase
 from integration.ggrc.generator import ObjectGenerator
 from ggrc.models import AccessGroup
 from ggrc.models import Product
@@ -25,16 +25,12 @@ class TestCustomAttributeImportExport(TestCase):
     that is used for sending import/export requests.
     """
     if TestCustomAttributeImportExport._set_up:
-      TestCase.setUp(self)
+      super(TestCustomAttributeImportExport, self).setUp()
       self.generator = ObjectGenerator()
       self.create_custom_attributes()
       self.create_people()
     self.client.get("/login")
-    self.headers = {
-        'Content-Type': 'application/json',
-        "X-Requested-By": "gGRC",
-        "X-export-view": "blocks",
-    }
+    self.headers = ObjectGenerator.get_header()
     TestCustomAttributeImportExport._set_up = False
 
   def create_custom_attributes(self):
@@ -99,25 +95,25 @@ class TestCustomAttributeImportExport(TestCase):
         errors.WRONG_VALUE.format(line=12, column_name="man CH"),
         errors.WRONG_VALUE.format(line=14, column_name="normal Date"),
         errors.WRONG_VALUE.format(line=16, column_name="man Date"),
-        errors.OWNER_MISSING.format(line=21, column_name="Owner"),
+        errors.OWNER_MISSING.format(line=21, column_name="Admin"),
         errors.UNKNOWN_USER_WARNING.format(line=22, email="kr@en.com"),
-        errors.OWNER_MISSING.format(line=22, column_name="Owner"),
-        errors.OWNER_MISSING.format(line=26, column_name="Owner"),
+        errors.OWNER_MISSING.format(line=22, column_name="Admin"),
+        errors.OWNER_MISSING.format(line=26, column_name="Admin"),
         errors.UNKNOWN_USER_WARNING.format(
             line=27, email="user@exameuple.com"),
-        errors.OWNER_MISSING.format(line=27, column_name="Owner"),
+        errors.OWNER_MISSING.format(line=27, column_name="Admin"),
     }
 
     expected_errors = {
-        "Line 6: Field man CH is required. The line will be ignored.",
-        "Line 9: Field man select is required. The line will be ignored.",
-        "Line 10: Field man select is required. The line will be ignored.",
-        "Line 12: Field man CH is required. The line will be ignored.",
-        "Line 16: Field man Date is required. The line will be ignored.",
-        "Line 18: Field man RT is required. The line will be ignored.",
-        "Line 20: Field man text is required. The line will be ignored.",
-        "Line 21: Field man person is required. The line will be ignored.",
-        "Line 28: Field Title is required. The line will be ignored."
+        "Line 6: Field 'man CH' is required. The line will be ignored.",
+        "Line 9: Field 'man select' is required. The line will be ignored.",
+        "Line 10: Field 'man select' is required. The line will be ignored.",
+        "Line 12: Field 'man CH' is required. The line will be ignored.",
+        "Line 16: Field 'man Date' is required. The line will be ignored.",
+        "Line 18: Field 'man RT' is required. The line will be ignored.",
+        "Line 20: Field 'man text' is required. The line will be ignored.",
+        "Line 21: Field 'man person' is required. The line will be ignored.",
+        "Line 28: Field 'Title' is required. The line will be ignored."
     }
 
     self.assertEqual(expected_warnings, set(response["row_warnings"]))
@@ -125,6 +121,13 @@ class TestCustomAttributeImportExport(TestCase):
     self.assertEqual(17, response["created"])
     self.assertEqual(9, response["ignored"])
     self.assertEqual(17, Product.query.count())
+
+    product10 = Product.query.filter_by(slug="prod10").first()
+    people_emails = {cav.attribute_object.email
+                     for cav in product10.custom_attribute_values
+                     if cav.custom_attribute.attribute_type == "Map:Person"}
+
+    self.assertEqual(people_emails, {"user1@ggrc.com", "user@example.com"})
 
   def test_product_ca_import_update(self):
     """Test updating of product with all custom attributes.
@@ -152,6 +155,12 @@ class TestCustomAttributeImportExport(TestCase):
                   for c in prod_0.custom_attribute_values}
     self.assertEqual(prod_0_expected, prod_0_new)
 
+    people_emails = {cav.attribute_object.email
+                     for cav in prod_0.custom_attribute_values
+                     if cav.custom_attribute.attribute_type == "Map:Person"}
+
+    self.assertEqual(people_emails, {"user@example.com", "user@example.com"})
+
   def tests_ca_export(self):
     """Test exporting products with custom attributes
 
@@ -164,18 +173,21 @@ class TestCustomAttributeImportExport(TestCase):
     filename = "custom_attribute_tests.csv"
     self.import_file(filename)
 
-    data = [{
-        "object_name": "Product",
-        "filters": {
-            "expression": {},
-        },
-        "fields": "all",
-    }]
+    data = {
+        "export_to": "csv",
+        "objects": [{
+            "object_name": "Product",
+            "filters": {
+                "expression": {},
+            },
+            "fields": "all",
+        }]
+    }
     response = self.client.post("/_service/export_csv", data=dumps(data),
                                 headers=self.headers)
 
     self.assert200(response)
-    self.assertEqual(len(response.data.splitlines()), 30)
+    self.assertEqual(len(response.data.splitlines()), 33)
     self.assertIn("\"Accepted values are", response.data)
     self.assertIn("number.\n\nAccepted values are", response.data)
     self.assertIn("Birthday", response.data)
@@ -186,22 +198,20 @@ class TestCustomAttributeImportExport(TestCase):
     filename = "custom_attribute_tests.csv"
     self.import_file(filename)
 
-    # TODO: there is a bug that imports do not index all custom attributes.
-    # After fixing this bug remove the following two lines.
-    from ggrc import views
-    views.do_reindex()
-
-    data = [{
-        "object_name": "Product",
-        "filters": {
-            "expression": {
-                "left": "normal text",
-                "op": {"name": "="},
-                "right": "some text",
+    data = {
+        "export_to": "csv",
+        "objects": [{
+            "object_name": "Product",
+            "filters": {
+                "expression": {
+                    "left": "normal text",
+                    "op": {"name": "="},
+                    "right": "some text",
+                },
             },
-        },
-        "fields": "all",
-    }]
+            "fields": "all",
+        }]
+    }
     response = self.client.post("/_service/export_csv", data=dumps(data),
                                 headers=self.headers)
     self.assert200(response)

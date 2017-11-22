@@ -1,4 +1,4 @@
--# Copyright (C) 2016 Google Inc.
+-# Copyright (C) 2017 Google Inc.
 -# Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 -extends "layouts/dashboard.haml"
@@ -10,7 +10,12 @@
   =super()
   GGRC.page_object = { "person": ={ full_user_json()|safe } };
 
+  GGRC.pageType = "ADMIN";
+
 -block header
   -include 'base_objects/_page_header.haml'
 
 -block widget_area
+
+-block page_scripts
+  %script{ type:'text/javascript', src:'{{config.get("DASHBOARD_JS_PATH")}}' }

@@ -1,24 +1,27 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Integration test for AutoStatusChangeable mixin"""
 
+import ddt
+
 from ggrc import models
 
-import integration.ggrc
+from integration.ggrc import TestCase
 from integration.ggrc import api_helper
 from integration.ggrc import generator
 from integration.ggrc.models import factories
 
 
-class TestMixinAutoStatusChangeable(integration.ggrc.TestCase):
+@ddt.ddt
+class TestMixinAutoStatusChangeable(TestCase):
 
   """Test case for AutoStatusChangeable mixin"""
 
   # pylint: disable=invalid-name
 
   def setUp(self):
-    integration.ggrc.TestCase.setUp(self)
+    super(TestMixinAutoStatusChangeable, self).setUp()
     self.client.get("/login")
     self.api_helper = api_helper.Api()
     self.objgen = generator.ObjectGenerator()
@@ -35,8 +38,13 @@ class TestMixinAutoStatusChangeable(integration.ggrc.TestCase):
     assessment = self.refresh_object(assessment)
     self.assertEqual(assessment.status, models.Assessment.PROGRESS_STATE)
 
-  def test_chaning_assignees_when_open_should_not_change_status(self):
-    """Adding/chaning/removing assignees shouldn't change status when open"""
+  @ddt.data("DONE_STATE", "START_STATE")
+  def test_changing_assignees_should_not_change_status(self, test_state):
+    """Adding/chaning/removing assignees shouldn't change status
+
+    Test assessment in FINAL_STATE should not get to PROGRESS_STATE on
+    assignee edit.
+    """
     people = [
         ("creator@example.com", "Creator"),
         ("assessor_1@example.com", "Assessor"),
@@ -44,31 +52,26 @@ class TestMixinAutoStatusChangeable(integration.ggrc.TestCase):
     ]
 
     assessment = self.create_assessment(people)
-
     assessment = self.refresh_object(assessment)
+    assessment = self.change_status(assessment,
+                                    getattr(assessment, test_state))
     self.assertEqual(assessment.status,
-                     models.Assessment.START_STATE)
-
+                     getattr(models.Assessment, test_state))
     self.modify_assignee(assessment,
                          "creator@example.com",
                          "Creator,Assessor")
-
     assessment = self.refresh_object(assessment)
     self.assertEqual(assessment.status,
-                     models.Assessment.START_STATE)
-
+                     getattr(models.Assessment, test_state))
     new_assessors = [("assessor_3_added_later@example.com", "Verifier")]
     self.create_assignees_restful(assessment, new_assessors)
-
     assessment = self.refresh_object(assessment)
     self.assertEqual(assessment.status,
-                     models.Assessment.START_STATE)
-
+                     getattr(models.Assessment, test_state))
     self.delete_assignee(assessment, "assessor_1@example.com")
-
     assessment = self.refresh_object(assessment)
     self.assertEqual(assessment.status,
-                     models.Assessment.START_STATE)
+                     getattr(models.Assessment, test_state))
 
   def test_assessment_verifiers_full_cycle_first_class_edit(self):
     """Test Assessment with verifiers full flow
@@ -125,40 +128,58 @@ class TestMixinAutoStatusChangeable(integration.ggrc.TestCase):
     self.assertEqual(assessment.status,
                      models.Assessment.PROGRESS_STATE)
 
-  def test_adding_assignees(self):
-    """Test that adding assignees reverts back to in progress"""
+  def test_modifying_person_custom_attribute_changes_status(self):
+    """Test that changing a Person CA changes the status to in progress."""
+    person_id = models.Person.query.first().id
+    _, another_person = self.objgen.generate_person()
+
+    # define a Custom Attribute of type Person...
+    _, ca_def = self.objgen.generate_custom_attribute(
+        definition_type="assessment",
+        attribute_type="Map:Person",
+        title="best employee")
+
+    # create assessment with a Person Custom Attribute set, make sure the
+    # state is set to final
     assessment = self.create_simple_assessment()
 
-    new_assessors = [("assessor_3_added_later@example.com", "Assessor")]
-    self.create_assignees_restful(assessment, new_assessors)
+    custom_attribute_values = [{
+        "custom_attribute_id": ca_def.id,
+        "attribute_value": "Person:" + str(person_id),
+    }]
+    self.api_helper.modify_object(assessment, {
+        "custom_attribute_values": custom_attribute_values
+    })
+
+    assessment = self.change_status(assessment, assessment.FINAL_STATE)
+    assessment = self.refresh_object(assessment)
+
+    # now change the Person CA and check what happens with the status
+    custom_attribute_values = [{
+        "custom_attribute_id": ca_def.id,
+        "attribute_value": "Person:" + str(another_person.id),  # make a change
+    }]
+    self.api_helper.modify_object(assessment, {
+        "custom_attribute_values": custom_attribute_values
+    })
 
     assessment = self.refresh_object(assessment)
-    self.assertEqual(assessment.status,
-                     models.Assessment.PROGRESS_STATE)
+    self.assertEqual(assessment.status, models.Assessment.PROGRESS_STATE)
 
-  def test_deleting_existing_assignees(self):
-    """Test that deleting assignees reverts back to in progress"""
+    # perform the same test for the "in review" state
+    assessment = self.change_status(assessment, assessment.DONE_STATE)
+    assessment = self.refresh_object(assessment)
 
-    assessment = self.create_simple_assessment()
-
-    for_deletion = "assessor_2@example.com"
-    self.delete_assignee(assessment, for_deletion)
+    custom_attribute_values = [{
+        "custom_attribute_id": ca_def.id,
+        "attribute_value": "Person:" + str(person_id),  # make a change
+    }]
+    self.api_helper.modify_object(assessment, {
+        "custom_attribute_values": custom_attribute_values
+    })
 
     assessment = self.refresh_object(assessment)
-    self.assertEqual(assessment.status,
-                     models.Assessment.PROGRESS_STATE)
-
-  def test_modifying_existing_assignees(self):
-    """Test that adding assignee new role reverts back to in progress"""
-    assessment = self.create_simple_assessment()
-
-    self.modify_assignee(assessment,
-                         "creator@example.com",
-                         "Creator,Assessor")
-
-    assessment = self.refresh_object(assessment)
-    self.assertEqual(assessment.status,
-                     models.Assessment.PROGRESS_STATE)
+    self.assertEqual(assessment.status, models.Assessment.PROGRESS_STATE)
 
   @classmethod
   def create_assignees(cls, obj, persons):
@@ -309,11 +330,6 @@ class TestMixinAutoStatusChangeable(integration.ggrc.TestCase):
     self.assertEqual(len(verifiers), defined_verifiers)
     return assessment
 
-  @classmethod
-  def refresh_object(cls, obj):
-    """Returns a new instance of a model, fresh and warm from the database."""
-    return obj.query.filter_by(id=obj.id).first()
-
   def change_status(self, obj, status,
                     expected_status=None, check_verified=False):
     """Change status of an object."""
@@ -356,4 +372,27 @@ class TestMixinAutoStatusChangeable(integration.ggrc.TestCase):
 
     self.assertEqual(assessment.status,
                      models.Assessment.FINAL_STATE)
+    return assessment
+
+  def create_assessment_in_ready_to_review(self):
+    """Create an assessment with some assessors in READY TO REVIEW state."""
+    people = [
+        ("creator@example.com", "Creator"),
+        ("assessor_1@example.com", "Assessor"),
+        ("assessor_2@example.com", "Assessor"),
+    ]
+
+    assessment = self.create_assessment(people)
+    assessment = self.refresh_object(assessment)
+
+    self.api_helper.modify_object(assessment, {
+        "title": assessment.title + " modified, change #1"
+    })
+
+    assessment = self.refresh_object(assessment)
+    assessment = self.change_status(assessment, assessment.DONE_STATE)
+    assessment = self.refresh_object(assessment)
+
+    self.assertEqual(assessment.status,
+                     models.Assessment.DONE_STATE)
     return assessment

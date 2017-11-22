@@ -1,10 +1,10 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
 (function (can, $, CMS) {
-  var ApprovalWorkflowErrors = can.compute(function () {
+  var ApprovalWorkflowErrors = function () {
     var errors = null;
     if (!this.attr('contact')) {
       errors = {
@@ -17,7 +17,7 @@
       });
     }
     return errors;
-  });
+  };
 
   can.Observe('CMS.ModelHelpers.CycleTask', {
     findInCacheById: function () {
@@ -65,7 +65,7 @@
           return CycleTask.save();
         }.bind(this));
     },
-    computed_errors: can.compute(function () {
+    computed_errors: function () {
       var errors = null;
       if (!this.attr('title')) {
         errors = {
@@ -73,7 +73,7 @@
         };
       }
       return errors;
-    })
+    }
   });
 
   can.Observe('CMS.ModelHelpers.ApprovalWorkflow', {
@@ -89,13 +89,17 @@
         'you to review newly created ${type} "${title}" before ${before}. ' +
         'Click <a href="${href}#workflows_widget">here</a> to perform a review.'
       );
+      var assigneeRole = _.find(GGRC.access_control_roles, {
+        object_type: 'TaskGroupTask',
+        name: 'Task Assignees',
+      });
 
       return aws_dfd.then(function (aws) {
         var ret;
         if (aws.length < 1) {
           ret = $.when(
             new CMS.Models.Workflow({
-              frequency: 'one_time',
+              unit: null,
               status: 'Active',
               title: reviewTemplate({
                 type: that.original_object.constructor.title_singular,
@@ -135,7 +139,13 @@
                   end_date: that.end_date,
                   object_approval: true,
                   sort_index: (Number.MAX_SAFE_INTEGER / 2).toString(10),
-                  contact: that.contact,
+                  access_control_list: [{
+                    ac_role_id: assigneeRole.id,
+                    person: {
+                      id: that.contact.id,
+                      type: 'Person',
+                    },
+                  }],
                   context: wf.context,
                   task_type: "text",
                   title: reviewTemplate({
@@ -163,8 +173,15 @@
                 return tg.attr("contact", that.contact).save().then(function(tg) {
                   return $.when.apply($, can.map(tg.task_group_tasks.reify(), function(tgt) {
                     return tgt.refresh().then(function(tgt) {
+
                       return tgt.attr({
-                        'contact': that.contact,
+                        'access_control_list': [{
+                          ac_role_id: assigneeRole.id,
+                          person: {
+                            id: that.contact.id,
+                            type: 'Person',
+                          },
+                        }],
                         'end_date': that.end_date,
                         'start_date': moment().format('MM/DD/YYYY'),
                         'task_type': tgt.task_type || 'text'
@@ -193,4 +210,4 @@
     computed_errors: ApprovalWorkflowErrors,
     computed_unsuppressed_errors: ApprovalWorkflowErrors
   });
-})(this.can, this.can.$, this.CMS);
+})(window.can, window.can.$, window.CMS);

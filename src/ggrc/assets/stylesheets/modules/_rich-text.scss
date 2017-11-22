@@ -1,27 +1,53 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
-.rich-text {
-  &__wrapper {
-    @include border-radius(2px);
+rich-text {
+  display: block;
+
+  .rich-text__wrapper {
     border: 1px solid $warmGray;
-    .inline-edit--active & {
-      @include border-radius(0);
+    border-radius: 2px;
+    min-height: 82px;
+
+    &.rich-text__wrapper-hidden-toolbar {
+      .ql-toolbar,
+      .ql-tooltip {
+        display: none;
+      }
+    }
+
+    .rich-text__toolbar {
       border: none;
-      margin: -2px -2px -2px -4px;
+      background: $itemBgnd;
+      border-top: 1px solid $warmGray;
+      padding: 3px;
+    }
+
+    .rich-text__content {
+      border: none;
+      padding: 4px;
+
+      .ql-editor {
+        padding: 0;
+        min-height: 44px;
+        overflow-y: auto;
+        max-height: 424px;
+      }
+
+      .ql-tooltip {
+        z-index: 2;
+      }
     }
   }
-  &__toolbar {
-    background: $itemBgnd;
-    border-top: 1px solid $warmGray;
-    padding: 3px !important;
-  }
-  &__content {
-    padding: 8px 10px !important;
-    .ql-editor {
-      min-height: 44px;
+
+  .inline-edit--active & {
+
+    .rich-text__wrapper {
+      border-radius: 0;
+      border: none;
+      margin: -2px -2px -2px -4px;
     }
   }
 }

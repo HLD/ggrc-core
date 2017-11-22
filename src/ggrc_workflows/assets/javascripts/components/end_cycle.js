@@ -1,5 +1,5 @@
   /*!
-  Copyright (C) 2016 Google Inc.
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -24,7 +24,9 @@
     tag: 'cycle-end-cycle',
     template: '<content/>',
     events: {
-      click: function () {
+      click: function (el, ev) {
+        ev.stopPropagation();
+
         this.scope.cycle
           .refresh()
           .then(function (cycle) {
@@ -42,7 +44,23 @@
             // items from the list.
             binding.list.splice(0, binding.list.length);
             return binding.loader.refresh_list(binding);
-          });
+          })
+          .then(function () {
+            var pageInstance = GGRC.page_instance();
+            var WorkflowExtension =
+              GGRC.extensions.find(function (extension) {
+                return extension.name === 'workflows';
+              });
+
+            can.trigger(el, 'refreshTree');
+
+            return GGRC.Utils.CurrentPage
+              .initCounts([
+                WorkflowExtension.countsMap.history
+              ],
+                pageInstance.type,
+                pageInstance.id);
+          }.bind(this));
       }
     }
   });

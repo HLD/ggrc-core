@@ -1,5 +1,5 @@
 {#
-Copyright (C) 2016 Google Inc.
+Copyright (C) 2017 Google Inc.
 Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 #}
   {% import 'notifications/style.html' as style %}
@@ -55,9 +55,10 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
                 {% endif %}
 
                 {% if digest['task_declined'] %}
-                  <h2 {{ style.sub_title() }} > Following
+                  <h2 {{ style.sub_title() }} >
+                    The following
                     {{ "tasks" if digest['task_declined']|length > 1 else "task" }}
-                    you did, got declined </h2>
+                     assigned to you, got declined</h2>
                   <ul {{ style.list_wrap() }} >
                   {% for task in digest['task_declined'].values() %}
                     <li {{ style.list_item() }} >
@@ -73,20 +74,78 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
                   </ul>
                 {% endif %}
 
-                {% if digest['due_soon'] %}
+                {% if digest['due_today'] %}
                   <h2 {{ style.sub_title() }} >
-                  {% if digest['due_soon']|length == 1 %}
+                    The following
+                    {{ "tasks are" if digest['due_today']|length > 1 else "task is" }}
+                    due on {{ digest['today'].strftime(digest['DATE_FORMAT']) }}
+                  </h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for task in digest['due_today'].itervalues() %}
+                    <li {{ style.list_item() }} >
+                      <a href="{{ task['cycle_task_url'] }}" {{ style.link_text() }} >
+                        {{ task['title'] }}
+                      </a>
+
+                      under
+                      <a
+                        href="{{ task['task_group_url'] }}"
+                        {{ style.link_text() }}
+                      >{{ task['task_group'].title }}</a>
+
+                      of
+                      <a
+                        href="{{ task['workflow_cycle_url'] }}"
+                        {{ style.link_text() }}
+                      >{{ task['workflow'].title }}</a>
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest['due_in'] %}
+                  <h2 {{ style.sub_title() }} >
+                  {% if digest['due_in']|length == 1 %}
                     1 task is
                   {% else %}
-                    {{ digest['due_soon']|length }} tasks are
+                    {{ digest['due_in']|length }} tasks are
                   {% endif %}
                   due very soon
                   </h2>
                   <ul {{ style.list_wrap() }} >
-                  {% for task in digest['due_soon'].values() %}
+                  {% for task in digest['due_in'].values() %}
                     <li {{ style.list_item() }} >
                       <a href="{{ task['cycle_task_url'] }}" {{ style.link_text() }} >
-                      {{ task['title'] }}</a> due {{ task['fuzzy_due_in'] }}
+                      {{ task['title'] }}</a> {{ task['due_date_statement'] }}
+                      <ul>
+                      {% for related_object_title in task['related_objects'] %}
+                        <li>{{ "%s" % related_object_title if related_object_title }}</li>
+                      {% endfor %}
+                      </ul>
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest['task_overdue'] %}
+                  <h2 {{ style.sub_title() }} >
+                    The following tasks are overdue, please finish ASAP:
+                  </h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for task in digest['task_overdue'].itervalues() %}
+                    <li {{ style.list_item() }} >
+                      <a
+                        href="{{ task['cycle_task_url'] }}"
+                        {{ style.link_text() }}>{{ task['title'] }}</a>
+                        under
+                      <a
+                        href="{{ task['task_group_url'] }}"
+                        {{ style.link_text() }}>{{ task['task_group'].title }}</a>
+                        of
+                      <a
+                        href="{{ task['workflow_cycle_url'] }}"
+                        {{ style.link_text() }}>{{ task['workflow'].title }}</a>
+                      ({{ task['due_date_statement'] }})
                       <ul>
                       {% for related_object_title in task['related_objects'] %}
                         <li>{{ "%s" % related_object_title if related_object_title }}</li>
@@ -133,14 +192,19 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
                 {% endif %}
 
                 {% if digest['all_tasks_completed'] %}
-                  <h2 {{ style.sub_title() }} >All tasks completed in the following
+                  <h2 {{ style.sub_title() }} >
+                    All tasks for the following workflow
                     {{ "cycles" if digest['all_tasks_completed']|length > 1 else "cycle" }}
-                    </h2>
+                    are now completed and/or verified. The following workflow
+                    {{ "cycles" if digest['all_tasks_completed']|length > 1 else "cycle" }}
+                    will end on {{ digest['today'].strftime(digest['DATE_FORMAT']) }}:
+                  </h2>
+
                   <ul {{ style.list_wrap() }} >
                   {% for cycle_id, cycle in digest['all_tasks_completed'].iteritems() %}
                     <li {{ style.list_item() }} >
-                      Completed cycle of
-                      <a href="{{ cycle['cycle_url'] }}" {{ style.link_text() }} >{{ cycle['cycle_title'] }}</a>.
+                      {{ cycle['cycle_slug'] }} of
+                      <a href="{{ cycle['cycle_inactive_url'] }}" {{ style.link_text() }} >{{ cycle['cycle_title'] }}</a>
                     </li>
                   {% endfor %}
                   </ul>
@@ -156,24 +220,93 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
                       New cycle of
                       <a href="{{ workflow['workflow_url'] }}" {{ style.link_text() }} >
                         {{ workflow['title'] }}</a>
-                      starts {{ workflow['fuzzy_start_date'] }}.
+                      {{ workflow['start_date_statement'] }}.
                     </li>
                   {% endfor %}
                   </ul>
                 {% endif %}
 
                 {% if digest.get('assessment_open') %}
-                  <h2 {{ style.sub_title() }} >New assessments are created</h2>
+                  <h2 {{ style.sub_title() }} >New assessments were created</h2>
                   <ul {{ style.list_wrap() }} >
                   {% for assessment_id, assessment_data in digest['assessment_open'].iteritems() %}
                     <li {{ style.list_item() }} >
-                      Assessment:
                       <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
-                        {{ assessment_data['title'] }}
-                      </a>
-                      {% if assessment_data.get('fuzzy_start_date') %}
-                        starts {{ assessment_data['fuzzy_start_date'] }}.
+                        {{ assessment_data['title'] }}</a>
+                      {% if assessment_data.get('start_date_statement') %}
+                        {{ assessment_data['start_date_statement'] }}.
                       {% endif %}
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest.get('assessment_started') %}
+                  <h2 {{ style.sub_title() }} >
+                    {{ "Assessments have" if digest['assessment_started']|length > 1 else "Assessment has" }}
+                    been started
+                  </h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for assessment_id, assessment_data in digest['assessment_started'].iteritems() %}
+                    <li {{ style.list_item() }} >
+                      <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
+                        {{ assessment_data['title'] }}</a>
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest.get('assessment_updated') %}
+                  <h2 {{ style.sub_title() }} >Assessments have been updated</h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for assessment_id, assessment_data in digest['assessment_updated'].iteritems() %}
+                    <li {{ style.list_item() }} >
+                      The below fields were updated for
+                      <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
+                        {{ assessment_data['title'] }}</a>
+                      ({{ assessment_data['notif_updated_at'].values()[0] }}):
+                      <ul>
+                        {{ assessment_data['updated_fields']|sort|join(', ') }}
+                      </ul>
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest.get('assessment_completed') %}
+                  <h2 {{ style.sub_title() }} >Completed assessments</h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for assessment_id, assessment_data in digest['assessment_completed'].iteritems() %}
+                    <li {{ style.list_item() }} >
+                      <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
+                        {{ assessment_data['title'] }}</a>
+                        ({{ assessment_data['notif_created_at'].values()[0] }})
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest.get('assessment_ready_for_review') %}
+                  <h2 {{ style.sub_title() }} >Assessments in review</h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for assessment_id, assessment_data in digest['assessment_ready_for_review'].iteritems() %}
+                    <li {{ style.list_item() }} >
+                      <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
+                        {{ assessment_data['title'] }}</a>
+                        ({{ assessment_data['notif_created_at'].values()[0] }})
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest.get('assessment_verified') %}
+                  <h2 {{ style.sub_title() }} >Verified assessments</h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for assessment_id, assessment_data in digest['assessment_verified'].iteritems() %}
+                    <li {{ style.list_item() }} >
+                      <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
+                        {{ assessment_data['title'] }}</a>
+                        ({{ assessment_data['notif_created_at'].values()[0] }})
                     </li>
                   {% endfor %}
                   </ul>
@@ -184,10 +317,22 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
                   <ul {{ style.list_wrap() }} >
                   {% for assessment_id, assessment_data in digest['assessment_declined'].iteritems() %}
                     <li {{ style.list_item() }} >
-                      Assessment:
                       <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
-                        {{ assessment_data['title'] }}
-                      </a>
+                        {{ assessment_data['title'] }}</a>
+                        ({{ assessment_data['notif_created_at'].values()[0] }})
+                    </li>
+                  {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if digest.get('assessment_reopened') %}
+                  <h2 {{ style.sub_title() }} >Reopened assessments</h2>
+                  <ul {{ style.list_wrap() }} >
+                  {% for assessment_id, assessment_data in digest['assessment_reopened'].iteritems() %}
+                    <li {{ style.list_item() }} >
+                      <a href="{{ assessment_data['url'] }}" {{ style.link_text() }} >
+                        {{ assessment_data['title'] }}</a>
+                        ({{ assessment_data['notif_created_at'].values()[0] }})
                     </li>
                   {% endfor %}
                   </ul>
@@ -200,10 +345,9 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
                     <li {{ style.list_item() }} >
                       Request:
                       <a href="{{ request_data['url'] }}" {{ style.link_text() }} >
-                        {{ request_data['title'] }}
-                      </a>
-                      {% if request_data.get('fuzzy_start_date') %}
-                        starts {{ request_data['fuzzy_start_date'] }}.
+                        {{ request_data['title'] }}</a>
+                      {% if request_data.get('start_date_statement') %}
+                        {{ request_data['start_date_statement'] }}.
                       {% endif %}
                     </li>
                   {% endfor %}
@@ -226,12 +370,25 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
                 {% if digest.get('comment_created') %}
                   <h2 {{ style.sub_title() }} >New comments</h2>
+
                   <ul {{ style.list_wrap() }} >
-                  {% for comment_id, comment in digest['comment_created'].items() %}
-                    <li {{ style.list_item() }} >
-                      {{ macro.user_name(comment['commentator']) }}
-                      left a comment on {{ comment['parent_type'] }} <a href="{{ comment['parent_url'] }}">{{ comment['parent_title'] }}</a>:<br />
-                      <p>{{ comment['description'] }}</p>
+                  {% for parent_info, comments in digest['comment_created'].iteritems() %}
+                    <li {{ style.list_item_no_bullet() }}>
+                      Comments on {{ parent_info.object_type }}
+                      <a href="{{ parent_info.url }}">{{ parent_info.title }}</a>:
+
+                      {% for comment in comments %}
+                        <ul {{ style.list_wrap() }}>
+                          <li {{ style.list_item_sublist() }} >
+                            {{ macro.user_name(comment['commentator']) }}
+                            left a comment at {{ comment['created_at_str'] }}:
+                            <div {{ style.comment_content() }}>
+                              {{ comment['description'] }}
+                            </div>
+                          </li>
+                        </ul>
+                      {% endfor %}
+
                     </li>
                   {% endfor %}
                   </ul>
@@ -239,7 +396,7 @@ Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
                 <p {{ style.text_paragraph() }} >
                   Thanks,<br>
-                  gGRC team
+                  GGRC team
                 </p>
               </td>
             </tr>

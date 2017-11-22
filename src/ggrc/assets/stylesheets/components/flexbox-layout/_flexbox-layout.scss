@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 .flex-box {
@@ -53,11 +53,16 @@
 
   [class*="flex-size"] {
     box-sizing: border-box;
+    min-width: 0;
   }
 }
 
 .flex-row {
   flex-direction: row;
+}
+
+.flex-row-reverse {
+  flex-direction: row-reverse;
 }
 
 .flex-col {
@@ -66,6 +71,10 @@
 
 .width-100 {
   width: 100%
+}
+
+.width-80 {
+  width: 80%
 }
 
 .width-70 {

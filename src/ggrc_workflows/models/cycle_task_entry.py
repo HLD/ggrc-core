@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """A module containing the workflow CycleTaskEntry model."""
@@ -8,10 +8,12 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 from ggrc import db
 from ggrc.models.mixins import Base, Described
-from ggrc.models.object_document import Documentable
+from ggrc.models import reflection
+from ggrc.models.relationship import Relatable
+from ggrc.fulltext import mixin
 
 
-class CycleTaskEntry(Described, Documentable, Base, db.Model):
+class CycleTaskEntry(Relatable, Described, Base, mixin.Indexed, db.Model):
   """Workflow CycleTaskEntry model."""
 
   __tablename__ = 'cycle_task_entries'
@@ -34,11 +36,11 @@ class CycleTaskEntry(Described, Documentable, Base, db.Model):
       backref='cycle_task_entries',
   )
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'cycle',
       'cycle_task_group_object_task',
       'is_declining_review'
-  ]
+  )
 
   @hybrid_property
   def is_declining_review(self):

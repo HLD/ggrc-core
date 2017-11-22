@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Check number of db queries per API request.
@@ -8,15 +8,19 @@ This is in converters because it depends on import to provide data
 
 import collections
 
+import ddt
+
 from ggrc.models import all_models
 from ggrc.utils import QueryCounter
 from ggrc.views import all_object_views
 from integration.ggrc_workflows.generator import WorkflowsGenerator
 
-from integration.ggrc.converters import TestCase
+from integration.ggrc import TestCase
 from integration.ggrc.generator import ObjectGenerator
+from integration.ggrc.models import factories
 
 
+@ddt.ddt
 class TestComprehensiveSheets(TestCase):
 
   """
@@ -32,72 +36,68 @@ class TestComprehensiveSheets(TestCase):
             if model_name not in WHITELIST]
 
   # limit found by trial and error, may need tweaking if models change
-  LIMIT = 32
+  LIMIT = 39
+
+  @classmethod
+  def setUpClass(cls):
+    cls.first_run = True
 
   def setUp(self):
-    TestCase.setUp(self)
-    self.generator = ObjectGenerator()
     self.client.get("/login")
+    self.generator = ObjectGenerator()
+    if TestComprehensiveSheets.first_run:
+      TestComprehensiveSheets.first_run = False
+      super(TestComprehensiveSheets, self).setUp()
 
-    self.create_custom_attributes()
-    filename = "comprehensive_sheet1.csv"
-    self.import_file(filename)
+      self.create_custom_attributes()
+      self.import_file("comprehensive_sheet1.csv")
 
-    gen = WorkflowsGenerator()
-    wfs = all_models.Workflow.eager_query().filter_by(status='Draft').all()
-    for workflow in wfs:
-      _, cycle = gen.generate_cycle(workflow)
-      self.assertIsNotNone(cycle)
+      gen = WorkflowsGenerator()
+      wfs = all_models.Workflow.eager_query().filter_by(status='Draft').all()
+      for workflow in wfs:
+        _, cycle = gen.generate_cycle(workflow)
+        self.assertIsNotNone(cycle)
 
   def tearDown(self):
     pass
 
-  def test_queries_per_api_call(self):
+  @ddt.data(*MODELS)
+  def test_queries_per_api_call(self, model):
     """Import comprehensive_sheet1 and count db requests per collection get.
 
     Query count should be <LIMIT for all model types.
     """
-    errors = set()
     with QueryCounter() as counter:
-      for model in self.MODELS:
-        try:
-          counter.queries = []
-          self.generator.api.get_query(model, "")
-          if counter.get > self.LIMIT:
-            print collections.Counter(counter.queries).most_common(1)
-          self.assertLess(counter.get, self.LIMIT,
-                          "Query count for object {} exceeded: {}/{}".format(
-                              model.__name__, counter.get, self.LIMIT)
-                          )
-        except AssertionError as error:
-          errors.add(error.message)
-    self.assertEqual(errors, set())
+      counter.queries = []
+      self.generator.api.get_query(model, "")
+      if counter.get > self.LIMIT:
+        print collections.Counter(counter.queries).most_common(1)
+      self.assertLess(counter.get, self.LIMIT,
+                      "Query count for object {} exceeded: {}/{}".format(
+                          model.__name__, counter.get, self.LIMIT)
+                      )
 
-  def test_queries_per_object_page(self):
+  @ddt.data(*all_object_views())
+  def test_queries_per_object_page(self, view):
     """Import comprehensive_sheet1 and count db requests per collection get.
 
     Query count should be <LIMIT for all model types.
     """
-    errors = set()
     with QueryCounter() as counter:
-      for view in all_object_views():
-        try:
-          model = view.model_class
-          if model not in self.MODELS:
-            continue
-          instance = model.query.first()
-          if instance is None or getattr(instance, "id", None) is None:
-            continue
-          counter.queries = []
-          res = self.client.get("/{}/{}".format(view.url, instance.id))
-          self.assertEqual(res.status_code, 200)
-          self.assertLess(counter.get, self.LIMIT,
-                          "Query count for object {} exceeded: {}/{}".format(
-                              model.__name__, counter.get, self.LIMIT)
-                          )
-        except AssertionError as e:
-          errors.add(e.message)
-    self.assertEqual(errors, set())
+      model = view.model_class
+      if model not in self.MODELS:
+        return
+      instance = model.query.first()
+      if instance is None or getattr(instance, "id", None) is None:
+        return
+      counter.queries = []
+      res = self.client.get("/{}/{}".format(view.url, instance.id))
+      self.assertEqual(res.status_code, 200)
+      self.assertLessEqual(
+          counter.get, self.LIMIT,
+          "Query count for object {} exceeded: {}/{}".format(
+              model.__name__, counter.get, self.LIMIT)
+      )
 
   def test_queries_for_dashboard(self):
     with QueryCounter() as counter:
@@ -111,12 +111,17 @@ class TestComprehensiveSheets(TestCase):
       self.assertEqual(res.status_code, 200)
       self.assertLess(counter.get, self.LIMIT, "Query count for permissions")
 
-  def create_custom_attributes(self):
+  @staticmethod
+  def create_custom_attributes():
     """Generate custom attributes needed by comprehensive_sheet1.csv."""
-    gen = self.generator.generate_custom_attribute
-    gen("control", title="my custom text", mandatory=True)
-    gen("program", title="my_text", mandatory=True)
-    gen("program", title="my_date", attribute_type="Date")
-    gen("program", title="my_checkbox", attribute_type="Checkbox")
-    gen("program", title="my_dropdown", attribute_type="Dropdown",
-        options="a,b,c,d")
+    cad = factories.CustomAttributeDefinitionFactory
+
+    with factories.single_commit():
+      cad(definition_type="control", title="my custom text", mandatory=True)
+      cad(definition_type="program", title="my_text", mandatory=True)
+      cad(definition_type="program", title="my_date", attribute_type="Date")
+      cad(definition_type="program", title="my_checkbox",
+          attribute_type="Checkbox")
+      cad(definition_type="program", title="my_dropdown",
+          attribute_type="Dropdown",
+          multi_choice_options="a,b,c,d")

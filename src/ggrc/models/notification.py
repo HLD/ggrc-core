@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """GGRC notification SQLAlchemy layer data model extensions."""
@@ -7,6 +7,8 @@ from sqlalchemy.orm import backref
 
 from ggrc import db
 from ggrc.models.mixins import Base
+from ggrc.models import utils
+from ggrc.models import reflection
 
 
 class NotificationConfig(Base, db.Model):
@@ -19,11 +21,11 @@ class NotificationConfig(Base, db.Model):
       'Person',
       backref=backref('notification_configs', cascade='all, delete-orphan'))
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'person_id',
       'notif_type',
       'enable_flag',
-  ]
+  )
 
   VALID_TYPES = [
       'Email_Now',
@@ -51,7 +53,11 @@ class Notification(Base, db.Model):
   sent_at = db.Column(db.DateTime, nullable=True)
   custom_message = db.Column(db.Text, nullable=True)
   force_notifications = db.Column(db.Boolean, default=False, nullable=False)
+  repeating = db.Column(db.Boolean, nullable=False, default=False)
   notification_type_id = db.Column(
       db.Integer, db.ForeignKey('notification_types.id'), nullable=False)
   notification_type = db.relationship(
       'NotificationType', foreign_keys='Notification.notification_type_id')
+
+  object = utils.PolymorphicRelationship("object_id", "object_type",
+                                         "{}_notifiable")

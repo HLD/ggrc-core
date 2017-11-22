@@ -1,22 +1,27 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
-"""All gGRC REST services."""
+"""All GGRC REST services."""
 
 from ggrc.services.common import ReadOnlyResource
 from ggrc.services.registry import service
 
 
 def contributed_services():
-  """The list of all gGRC collection services as a list of
+  """The list of all GGRC collection services as a list of
   (url, ModelClass) tuples.
   """
   import ggrc.models.all_models as models
+  from ggrc.services.relationship_resource import RelationshipResource
+  from ggrc.services.audit_resource import AuditResource
+  from ggrc.services.assessment_resource import AssessmentResource
+  from ggrc.services.person_resource import PersonResource
+  from ggrc.access_control.role import AccessControlRole
 
   return [
       service('background_tasks', models.BackgroundTask),
       service('access_groups', models.AccessGroup),
-      service('audits', models.Audit),
+      service('audits', models.Audit, AuditResource),
       service('audit_objects', models.AuditObject),
       service('categorizations', models.Categorization),
       service('category_bases', models.CategoryBase),
@@ -24,7 +29,7 @@ def contributed_services():
       service('control_assertions', models.ControlAssertion),
       service('contexts', models.Context),
       service('controls', models.Control),
-      service('assessments', models.Assessment),
+      service('assessments', models.Assessment, AssessmentResource),
       service('assessment_templates', models.AssessmentTemplate),
       service('comments', models.Comment),
       service('custom_attribute_definitions',
@@ -42,19 +47,16 @@ def contributed_services():
       service('help', models.Help),
       service('markets', models.Market),
       service('meetings', models.Meeting),
-      service('object_documents', models.ObjectDocument),
-      service('object_owners', models.ObjectOwner),
       service('object_people', models.ObjectPerson),
       service('objectives', models.Objective),
       service('options', models.Option),
       service('org_groups', models.OrgGroup),
       service('vendors', models.Vendor),
-      service('people', models.Person),
+      service('people', models.Person, PersonResource),
       service('products', models.Product),
       service('projects', models.Project),
       service('programs', models.Program),
-      service('relationships', models.Relationship),
-      service('requests', models.Request),
+      service('relationships', models.Relationship, RelationshipResource),
       service('revisions', models.Revision, ReadOnlyResource),
       service('sections', models.Section),
       service('clauses', models.Clause),
@@ -64,10 +66,13 @@ def contributed_services():
       service('processes', models.Process),
       service('notification_configs', models.NotificationConfig),
       service('issues', models.Issue),
+      service('snapshots', models.Snapshot),
+      service('access_control_roles', AccessControlRole)
   ]
 
 
 def all_services():
+  """Get services from all modules."""
   from ggrc.extensions import get_extension_modules
 
   services = contributed_services()
@@ -82,23 +87,23 @@ def all_services():
 
 
 def init_extra_services(app):
+  """Add extra service url rules."""
   from ggrc.login import login_required
 
-  from .search import search
+  from ggrc.services.search import search
   app.add_url_rule(
       '/search', 'search', login_required(search))
 
-  from .log_event import log_event
-  app.add_url_rule(
-      '/api/log_events', 'log_events', log_event, methods=['POST'])
+  from ggrc.services.suggest import suggest
+  app.add_url_rule('/people/suggest', 'suggest', login_required(suggest))
 
-  from .description import ServiceDescription
+  from ggrc.services.description import ServiceDescription
   app.add_url_rule(
       '/api', view_func=ServiceDescription.as_view('ServiceDescription'))
 
 
 def init_all_services(app):
-  """Register all gGRC REST services with the Flask application ``app``."""
+  """Register all GGRC REST services with the Flask application ``app``."""
   from ggrc.extensions import get_extension_modules
   from ggrc.login import login_required
 

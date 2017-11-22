@@ -1,29 +1,28 @@
-dev:
-  build: .
-  command: /sbin/my_init
-  ports:
-   - "8000:8000"
-   - "8080:8080"
-   - "9876:9876"
-  volumes:
-   - ".:/vagrant"
-   - ".:/vagrant_bind"
-   - "./provision/docker/mysql:/etc/mysql/conf.d"
-  privileged: true
-  environment:
-   - PYTHONDONTWRITEBYTECODE=true
-   - NODE_PATH=/vagrant-dev/node_modules/
-
-selenium:
-  build: .
-  dockerfile: Dockerfile-selenium
-  ports:
-   - "4444:4444"
-  volumes:
-   - "./test/selenium:/selenium"
-   - "/dev/shm:/dev/shm"
-  links:
-   - dev 
-  environment:
-   - PYTHONDONTWRITEBYTECODE=true
-   - PYTHONPATH=/selenium/src
+version: "2"
+services:
+  cleandev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+     - "8000:8000"
+     - "8080:8080"
+     - "9876:9876"
+     - "9222:9222"
+    volumes:
+     - ".:/vagrant"
+    environment:
+     - PYTHONDONTWRITEBYTECODE=true
+     - NODE_PATH=/vagrant-dev/node_modules/
+     - GGRC_DATABASE_URI=mysql+mysqldb://root:root@db/ggrcdev?charset=utf8
+     - GGRC_DATABASE_HOST=db
+    links:
+     - db
+  db:
+    image: mysql:5.6
+    ports:
+     - "3306:3306"
+    volumes:
+     - "./provision/docker/mysql:/etc/mysql/conf.d"
+    environment:
+     - MYSQL_ROOT_PASSWORD=root

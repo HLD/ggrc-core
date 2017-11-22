@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """This module is used for handling a single line from a csv file.
@@ -9,10 +9,11 @@ import collections
 import ggrc.services
 from ggrc import db
 from ggrc.converters import errors
+from ggrc.converters import get_importables
 from ggrc.login import get_current_user_id
 from ggrc.models.reflection import AttributeInfo
 from ggrc.rbac import permissions
-from ggrc.services.common import Resource
+from ggrc.services import signals
 
 
 class RowConverter(object):
@@ -26,6 +27,7 @@ class RowConverter(object):
     self.from_ids = self.obj is not None
     self.is_new = True
     self.is_delete = False
+    self.is_deprecated = False
     self.ignore = False
     self.index = options.get("index", -1)
     self.row = options.get("row", [])
@@ -73,11 +75,15 @@ class RowConverter(object):
         self.attrs[attr_name] = item
       else:
         self.objects[attr_name] = item
-
-      if not self.ignore and attr_name in ("slug", "email"):
-        self.id_key = attr_name
-        self.obj = self.get_or_generate_object(attr_name)
-        item.set_obj_attr()
+      if not self.ignore:
+        if attr_name == "status" and hasattr(self.obj, "DEPRECATED"):
+          self.is_deprecated = (
+              self.obj.DEPRECATED == item.value != self.obj.status
+          )
+        if attr_name in ("slug", "email"):
+          self.id_key = attr_name
+          self.obj = self.get_or_generate_object(attr_name)
+          item.set_obj_attr()
       item.check_unique_consistency()
 
   def handle_obj_row_data(self):
@@ -97,7 +103,7 @@ class RowConverter(object):
 
   def check_mandatory_fields(self):
     """Check if the new object contains all mandatory columns."""
-    if not self.is_new or self.is_delete:
+    if not self.is_new or self.is_delete or self.ignore:
       return
     headers = self.block_converter.object_headers
     mandatory = [key for key, header in headers.items() if header["mandatory"]]
@@ -145,6 +151,11 @@ class RowConverter(object):
     self.is_new = False
     obj = self.find_by_key(key, value)
     if not obj:
+      # We assume that 'get_importables()' returned value contains
+      # names of the objects that cannot be created via import but
+      # can be updated.
+      if self.block_converter.class_name.lower() not in get_importables():
+        self.add_error(errors.CREATE_INSTANCE_ERROR)
       obj = self.object_class()
       self.is_new = True
     elif not permissions.is_allowed_update_for(obj):
@@ -176,9 +187,10 @@ class RowConverter(object):
       return
 
     for item_handler in self.attrs.values():
-      item_handler.set_obj_attr()
+      if not item_handler.view_only:
+        item_handler.set_obj_attr()
 
-  def send_post_commit_signals(self):
+  def send_post_commit_signals(self, event=None):
     """Send after commit signals for all objects
 
     This function sends proper signals for all objects depending if the object
@@ -191,14 +203,16 @@ class RowConverter(object):
     service_class = getattr(ggrc.services, self.object_class.__name__)
     service_class.model = self.object_class
     if self.is_delete:
-      Resource.model_deleted_after_commit.send(
-          self.object_class, obj=self.obj, service=service_class)
+      signals.Restful.model_deleted_after_commit.send(
+          self.object_class, obj=self.obj, service=service_class, event=event)
     elif self.is_new:
-      Resource.model_posted_after_commit.send(
-          self.object_class, obj=self.obj, src={}, service=service_class)
+      signals.Restful.model_posted_after_commit.send(
+          self.object_class, obj=self.obj, src={}, service=service_class,
+          event=event)
     else:
-      Resource.model_put_after_commit.send(
-          self.object_class, obj=self.obj, src={}, service=service_class)
+      signals.Restful.model_put_after_commit.send(
+          self.object_class, obj=self.obj, src={}, service=service_class,
+          event=event)
 
   def send_pre_commit_signals(self):
     """Send before commit signals for all objects.
@@ -213,15 +227,13 @@ class RowConverter(object):
     service_class = getattr(ggrc.services, self.object_class.__name__)
     service_class.model = self.object_class
     if self.is_delete:
-      Resource.model_deleted.send(
+      signals.Restful.model_deleted.send(
           self.object_class, obj=self.obj, service=service_class)
     elif self.is_new:
-      Resource.model_posted.send(
+      signals.Restful.model_posted.send(
           self.object_class, obj=self.obj, src={}, service=service_class)
-      Resource.collection_posted.send(
-          self.object_class, objects=[self.obj], sources=[{}])
     else:
-      Resource.model_put.send(
+      signals.Restful.model_put.send(
           self.object_class, obj=self.obj, src={}, service=service_class)
 
   def insert_object(self):

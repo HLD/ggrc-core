@@ -1,7 +1,11 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Module containing comment model and comment related mixins."""
+
+import itertools
+
+from collections import defaultdict
 
 from sqlalchemy import case
 from sqlalchemy import orm
@@ -9,14 +13,19 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import validates
 from werkzeug.exceptions import BadRequest
 
+from ggrc import builder
 from ggrc import db
-from ggrc.models.computed_property import computed_property
 from ggrc.models.deferred import deferred
 from ggrc.models.revision import Revision
 from ggrc.models.mixins import Base
 from ggrc.models.mixins import Described
-from ggrc.models.object_owner import Ownable
-from ggrc.models.relationship import Relatable
+from ggrc.models.mixins import Notifiable
+from ggrc.models.relationship import Relatable, Relationship
+from ggrc.access_control.roleable import Roleable
+from ggrc.fulltext.mixin import Indexed, ReindexRule
+from ggrc.fulltext.attributes import MultipleSubpropertyFullTextAttr
+from ggrc.models import inflector
+from ggrc.models import reflection
 
 
 class Commentable(object):
@@ -36,7 +45,6 @@ class Commentable(object):
       "Assessor",
       "Assignee",
       "Creator",
-      "Requester",
       "Verifier",
   ])
 
@@ -58,7 +66,7 @@ class Commentable(object):
       # given data - this is intended.
       return ",".join(value)
     elif not value:
-      return ""
+      return value
     else:
       raise ValueError(value,
                        'Value should be either empty ' +
@@ -66,22 +74,42 @@ class Commentable(object):
                        ', '.join(sorted(self.VALID_RECIPIENTS))
                        )
 
-  recipients = db.Column(db.String, nullable=True)
-  send_by_default = db.Column(db.Boolean)
+  recipients = db.Column(
+      db.String,
+      nullable=True,
+      default=u"Assessor,Creator,Verifier")
 
-  _publish_attrs = [
-      "recipients",
-      "send_by_default",
-  ]
+  send_by_default = db.Column(db.Boolean, nullable=True, default=True)
+
+  _api_attrs = reflection.ApiAttributes("recipients", "send_by_default")
+
   _aliases = {
       "recipients": "Recipients",
       "send_by_default": "Send by default",
+      "comments": {
+          "display_name": "Comments",
+          "description": 'DELIMITER=";;" double semi-colon separated values',
+      },
   }
+  _fulltext_attrs = [
+      MultipleSubpropertyFullTextAttr("comment", "comments", ["description"]),
+  ]
+
+  @classmethod
+  def indexed_query(cls):
+    return super(Commentable, cls).indexed_query().options(
+        orm.Load(cls).subqueryload("comments").load_only("id", "description")
+    )
+
+  @classmethod
+  def eager_query(cls):
+    """Eager Query"""
+    query = super(Commentable, cls).eager_query()
+    return query.options(orm.subqueryload('comments'))
 
   @declared_attr
-  def comments(self):
+  def comments(cls):  # pylint: disable=no-self-argument
     """Comments related to self via Relationship table."""
-    from ggrc.models.relationship import Relationship
     comment_id = case(
         [(Relationship.destination_type == "Comment",
           Relationship.destination_id)],
@@ -95,14 +123,28 @@ class Commentable(object):
 
     return db.relationship(
         Comment,
-        primaryjoin=lambda: self.id == commentable_id,
+        primaryjoin=lambda: cls.id == commentable_id,
         secondary=Relationship.__table__,
         secondaryjoin=lambda: Comment.id == comment_id,
         viewonly=True,
     )
 
 
-class Comment(Relatable, Described, Ownable, Base, db.Model):
+def reindex_by_relationship(relationship):
+  """Reindex comment if relationship changed or created or deleted"""
+  if relationship.destination_type == Comment.__name__:
+    instance = relationship.source
+  elif relationship.source_type == Comment.__name__:
+    instance = relationship.destination
+  else:
+    return []
+  if isinstance(instance, (Indexed, Commentable)):
+    return [instance]
+  return []
+
+
+class Comment(Roleable, Relatable, Described, Notifiable,
+              Base, Indexed, db.Model):
   """Basic comment model."""
   __tablename__ = "comments"
 
@@ -127,18 +169,50 @@ class Comment(Relatable, Described, Ownable, Base, db.Model):
   )
 
   # REST properties
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       "assignee_type",
-      "custom_attribute_revision",
-  ]
-
-  _update_attrs = [
-      "assignee_type",
-      "custom_attribute_revision_upd",
-  ]
+      reflection.Attribute("custom_attribute_revision",
+                           create=False,
+                           update=False),
+      reflection.Attribute("custom_attribute_revision_upd",
+                           read=False),
+  )
 
   _sanitize_html = [
       "description",
+  ]
+
+  def get_objects_to_reindex(self):
+    """Return list required objects for reindex if comment C.U.D."""
+    source_qs = db.session.query(
+        Relationship.destination_type, Relationship.destination_id
+    ).filter(
+        Relationship.source_type == self.__class__.__name__,
+        Relationship.source_id == self.id
+    )
+    destination_qs = db.session.query(
+        Relationship.source_type, Relationship.source_id
+    ).filter(
+        Relationship.destination_type == self.__class__.__name__,
+        Relationship.destination_id == self.id
+    )
+    result_qs = source_qs.union(destination_qs)
+    klass_dict = defaultdict(set)
+    for klass, object_id in result_qs:
+      klass_dict[klass].add(object_id)
+
+    queries = []
+    for klass, object_ids in klass_dict.iteritems():
+      model = inflector.get_model(klass)
+      if not model:
+        continue
+      if issubclass(model, (Indexed, Commentable)):
+        queries.append(model.query.filter(model.id.in_(list(object_ids))))
+    return list(itertools.chain(*queries))
+
+  AUTO_REINDEX_RULES = [
+      ReindexRule("Comment", lambda x: x.get_objects_to_reindex()),
+      ReindexRule("Relationship", reindex_by_relationship),
   ]
 
   @classmethod
@@ -150,7 +224,7 @@ class Comment(Relatable, Described, Ownable, Base, db.Model):
            .undefer_group('CustomAttributeDefinition_complete'),
     )
 
-  @computed_property
+  @builder.simple_property
   def custom_attribute_revision(self):
     """Get the historical value of the relevant CA value."""
     if not self.revision:

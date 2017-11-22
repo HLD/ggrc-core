@@ -1,12 +1,16 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Module for control model and related classes."""
 
+from sqlalchemy import orm
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import validates
 
 from ggrc import db
+from ggrc.models.comment import Commentable
+from ggrc.models.object_document import PublicDocumentable
+from ggrc.access_control.roleable import Roleable
 from ggrc.models.audit_object import Auditable
 from ggrc.models.categorization import Categorizable
 from ggrc.models.category import CategoryBase
@@ -14,20 +18,20 @@ from ggrc.models.mixins import BusinessObject
 from ggrc.models.mixins import CustomAttributable
 from ggrc.models.mixins import Hierarchical
 from ggrc.models.mixins import TestPlanned
-from ggrc.models.mixins import Timeboxed
+from ggrc.models.mixins import LastDeprecatedTimeboxed
+from ggrc.models.mixins.with_last_assessment_date import WithLastAssessmentDate
 from ggrc.models.deferred import deferred
-from ggrc.models.object_owner import Ownable
 from ggrc.models.object_person import Personable
-from ggrc.models.option import Option
-from ggrc.models.person import Person
-from ggrc.models.reflection import PublishOnly
 from ggrc.models.relationship import Relatable
 from ggrc.models.track_object_state import HasObjectState
-from ggrc.models.track_object_state import track_state_for_class
 from ggrc.models.utils import validate_option
+from ggrc.fulltext.mixin import Indexed
+from ggrc.fulltext import attributes
+from ggrc.models import reflection
 
 
 class ControlCategory(CategoryBase):
+  """Custom Category class for Control"""
   __mapper_args__ = {
       'polymorphic_identity': 'ControlCategory'
   }
@@ -35,6 +39,7 @@ class ControlCategory(CategoryBase):
 
 
 class ControlAssertion(CategoryBase):
+  """Custom Assertion class for Control"""
   __mapper_args__ = {
       'polymorphic_identity': 'ControlAssertion'
   }
@@ -44,74 +49,100 @@ class ControlAssertion(CategoryBase):
 class ControlCategorized(Categorizable):
 
   @declared_attr
-  def categorizations(cls):
+  def categorizations(cls):  # pylint: disable=no-self-argument
     return cls.declare_categorizable(
         "ControlCategory", "category", "categories", "categorizations")
 
-  _publish_attrs = [
-      'categories',
-      PublishOnly('categorizations'),
+  _fulltext_attrs = [
+      attributes.MultipleSubpropertyFullTextAttr(
+          "categories",
+          "categorizations",
+          ["category"]
+      ),
   ]
+  _api_attrs = reflection.ApiAttributes(
+      'categories',
+      reflection.Attribute('categorizations', create=False, update=False),
+  )
 
   _include_links = []
 
   _aliases = {
-      "categories": {
-          "display_name": "Categories",
-          "filter_by": "_filter_by_categories",
-      },
+      "categories": "Categories",
   }
 
   @classmethod
-  def _filter_by_categories(cls, predicate):
-    return cls._filter_by_category("ControlCategory", predicate)
-
-  @classmethod
   def eager_query(cls):
-    from sqlalchemy import orm
     query = super(ControlCategorized, cls).eager_query()
     return query.options(
         orm.subqueryload('categorizations').joinedload('category'),
+    )
+
+  def log_json(self):
+    out_json = super(ControlCategorized, self).log_json()
+    # pylint: disable=not-an-iterable
+    out_json["categories"] = [c.log_json() for c in self.categorizations]
+    return out_json
+
+  @classmethod
+  def indexed_query(cls):
+    return super(ControlCategorized, cls).indexed_query().options(
+        orm.Load(cls).joinedload('categorizations',),
     )
 
 
 class AssertionCategorized(Categorizable):
 
   @declared_attr
-  def categorized_assertions(cls):
+  def categorized_assertions(cls):  # pylint: disable=no-self-argument
     return cls.declare_categorizable(
         "ControlAssertion", "assertion", "assertions",
         "categorized_assertions")
 
-  _publish_attrs = [
-      'assertions',
-      PublishOnly('categorized_assertions'),
+  _fulltext_attrs = [
+      attributes.MultipleSubpropertyFullTextAttr(
+          "assertions",
+          "categorized_assertions",
+          ["category"]
+      ),
   ]
+  _api_attrs = reflection.ApiAttributes(
+      'assertions',
+      reflection.Attribute('categorized_assertions',
+                           create=False,
+                           update=False),
+  )
   _include_links = []
   _aliases = {
-      "assertions": {
-          "display_name": "Assertions",
-          "filter_by": "_filter_by_assertions",
-      },
+      "assertions": "Assertions",
   }
 
   @classmethod
-  def _filter_by_assertions(cls, predicate):
-    return cls._filter_by_category("ControlAssertion", predicate)
-
-  @classmethod
   def eager_query(cls):
-    from sqlalchemy import orm
     query = super(AssertionCategorized, cls).eager_query()
     return query.options(
         orm.subqueryload('categorized_assertions').joinedload('category'),
     )
 
+  def log_json(self):
+    out_json = super(AssertionCategorized, self).log_json()
+    # pylint: disable=not-an-iterable
+    out_json["assertions"] = [a.log_json()
+                              for a in self.categorized_assertions]
+    return out_json
 
-class Control(HasObjectState, Relatable, CustomAttributable,
-              Personable, ControlCategorized, AssertionCategorized,
-              Hierarchical, Timeboxed, Ownable, Auditable,
-              TestPlanned, BusinessObject, db.Model):
+  @classmethod
+  def indexed_query(cls):
+    return super(AssertionCategorized, cls).indexed_query().options(
+        orm.Load(cls).joinedload('categorized_assertions',),
+    )
+
+
+class Control(WithLastAssessmentDate, HasObjectState, Roleable, Relatable,
+              CustomAttributable, Personable, ControlCategorized,
+              PublicDocumentable, AssertionCategorized, Hierarchical,
+              LastDeprecatedTimeboxed, Auditable, TestPlanned,
+              Commentable, BusinessObject, Indexed, db.Model):
   __tablename__ = 'controls'
 
   company_control = deferred(db.Column(db.Boolean), 'Control')
@@ -159,7 +190,7 @@ class Control(HasObjectState, Relatable, CustomAttributable,
     )
 
   # REST properties
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'active',
       'company_control',
       'directive',
@@ -172,6 +203,33 @@ class Control(HasObjectState, Relatable, CustomAttributable,
       'version',
       'principal_assessor',
       'secondary_assessor',
+  )
+
+  _fulltext_attrs = [
+      'active',
+      'company_control',
+      'directive',
+      'documentation_description',
+      attributes.BooleanFullTextAttr(
+          'fraud_related',
+          'fraud_related',
+          true_value="yes", false_value="no"),
+      attributes.BooleanFullTextAttr(
+          'key_control',
+          'key_control',
+          true_value="key", false_value="non-key"),
+      'kind',
+      'means',
+      'verify_frequency',
+      'version',
+      attributes.FullTextAttr(
+          "principal_assessor",
+          "principal_assessor",
+          ["email", "name"]),
+      attributes.FullTextAttr(
+          'secondary_assessor',
+          'secondary_assessor',
+          ["email", "name"]),
   ]
 
   _sanitize_html = [
@@ -179,35 +237,58 @@ class Control(HasObjectState, Relatable, CustomAttributable,
       'version',
   ]
 
+  @classmethod
+  def indexed_query(cls):
+    return super(Control, cls).indexed_query().options(
+        orm.Load(cls).undefer_group(
+            "Control_complete"
+        ),
+        orm.Load(cls).joinedload(
+            "directive"
+        ).undefer_group(
+            "Directive_complete"
+        ),
+        orm.Load(cls).joinedload(
+            "principal_assessor"
+        ).undefer_group(
+            "Person_complete"
+        ),
+        orm.Load(cls).joinedload(
+            "secondary_assessor"
+        ).undefer_group(
+            "Person_complete"
+        ),
+        orm.Load(cls).joinedload(
+            'kind',
+        ).undefer_group(
+            "Option_complete"
+        ),
+        orm.Load(cls).joinedload(
+            'means',
+        ).undefer_group(
+            "Option_complete"
+        ),
+        orm.Load(cls).joinedload(
+            'verify_frequency',
+        ).undefer_group(
+            "Option_complete"
+        ),
+    )
+
   _include_links = []
 
   _aliases = {
-      "url": "Control URL",
-      "kind": {
-          "display_name": "Kind/Nature",
-          "filter_by": "_filter_by_kind",
-      },
-      "means": {
-          "display_name": "Type/Means",
-          "filter_by": "_filter_by_means",
-      },
-      "verify_frequency": {
-          "display_name": "Frequency",
-          "filter_by": "_filter_by_verify_frequency",
-      },
+      "kind": "Kind/Nature",
+      "means": "Type/Means",
+      "verify_frequency": "Frequency",
       "fraud_related": "Fraud Related",
-      "principal_assessor": {
-          "display_name": "Principal Assessor",
-          "filter_by": "_filter_by_principal_assessor",
-      },
-      "secondary_assessor": {
-          "display_name": "Secondary Assessor",
-          "filter_by": "_filter_by_secondary_assessor",
-      },
       "key_control": {
           "display_name": "Significance",
           "description": "Allowed values are:\nkey\nnon-key\n---",
-      }
+      },
+      # overrides values from PublicDocumentable mixin
+      "document_url": None,
+      "test_plan": "Assessment Procedure",
   }
 
   @validates('kind', 'means', 'verify_frequency')
@@ -216,45 +297,15 @@ class Control(HasObjectState, Relatable, CustomAttributable,
     return validate_option(self.__class__.__name__, key, option, desired_role)
 
   @classmethod
-  def _filter_by_kind(cls, predicate):
-    return Option.query.filter(
-        (Option.id == cls.kind_id) & predicate(Option.title)
-    ).exists()
-
-  @classmethod
-  def _filter_by_means(cls, predicate):
-    return Option.query.filter(
-        (Option.id == cls.means_id) & predicate(Option.title)
-    ).exists()
-
-  @classmethod
-  def _filter_by_principal_assessor(cls, predicate):
-    return Person.query.filter(
-        (Person.id == cls.principal_assessor_id) &
-        (predicate(Person.name) | predicate(Person.email))
-    ).exists()
-
-  @classmethod
-  def _filter_by_secondary_assessor(cls, predicate):
-    return Person.query.filter(
-        (Person.id == cls.secondary_assessor_id) &
-        (predicate(Person.name) | predicate(Person.email))
-    ).exists()
-
-  @classmethod
-  def _filter_by_verify_frequency(cls, predicate):
-    return Option.query.filter(
-        (Option.id == cls.verify_frequency_id) & predicate(Option.title)
-    ).exists()
-
-  @classmethod
   def eager_query(cls):
-    from sqlalchemy import orm
     query = super(Control, cls).eager_query()
     return cls.eager_inclusions(query, Control._include_links).options(
         orm.joinedload('directive'),
         orm.joinedload('principal_assessor'),
         orm.joinedload('secondary_assessor'),
+        orm.joinedload('kind'),
+        orm.joinedload('means'),
+        orm.joinedload('verify_frequency'),
     )
 
   def log_json(self):
@@ -263,5 +314,3 @@ class Control(HasObjectState, Relatable, CustomAttributable,
     if self.directive:
       out_json["mapped_directive"] = self.directive.display_name
     return out_json
-
-track_state_for_class(Control)

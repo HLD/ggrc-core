@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -18,23 +18,17 @@
       'a click': function (el, ev) {
         var instance = this.scope.attr('audit') || GGRC.page_instance();
         this._results = null;
-        GGRC.Controllers.MapperModal.launch(el, {
+        GGRC.Controllers.ObjectGenerator.launch(el, {
           object: 'Audit',
           type: 'Control',
           'join-object-id': instance.id,
           'join-mapping': 'program_controls',
-          getList: true,
-          useTemplates: true,
-          assessmentGenerator: true,
           relevantTo: [{
+            readOnly: true,
             type: instance.type,
-            id: instance.id
+            id: instance.id,
+            title: instance.title
           }],
-          template: {
-            title: '/static/mustache/assessments/generator_title.mustache',
-            submitButton: 'Generate Assessments',
-            count: 'assessment(s) will be generated'
-          },
           callback: this.generateAssessments.bind(this)
         });
       },
@@ -44,9 +38,9 @@
         var redirectLink;
         var messages = {
           error: 'Assessment generation has failed.',
-          progress: 'Assessment generation is in process. This may take ' +
-                    'multiple hours depending on the volume.',
-          success: 'Assessment generation successful. {reload_link}'
+          progress: 'Assessment generation is in progress. This may take ' +
+          'several minutes.',
+          success: 'Assessment was generated successfully. {reload_link}'
         };
         if (statuses.Failure > 0) {
           type = 'error';
@@ -86,7 +80,7 @@
         que.enqueue(list).trigger().then(function (items) {
           var results = _.map(items, function (item) {
             var id = options.assessmentTemplate.split('-')[0];
-            return this.generateModel(item, id);
+            return this.generateModel(item, id, options.type);
           }.bind(this));
           this._results = results;
           $.when.apply($, results)
@@ -107,29 +101,29 @@
             }.bind(this));
         }.bind(this));
       },
-      generateModel: function (object, template) {
-        var assessmentTemplate = CMS.Models.AssessmentTemplate.findInCacheById(
-          template);
-        var title = object.title + ' assessment for ' + this.scope.audit.title;
+      generateModel: function (object, template, type) {
+        var title = 'Generated Assessment for ' + this.scope.audit.title;
         var data = {
           _generated: true,
           audit: this.scope.audit,
-          object: object.stub(),
+          // Provide actual Snapshot Object for Assessment
+          object: {
+            id: object.id,
+            type: 'Snapshot',
+            href: object.selfLink
+          },
           context: this.scope.audit.context,
-          template: assessmentTemplate && assessmentTemplate.stub(),
-          title: title
+          title: title,
+          assessment_type: type
         };
-
-        if (assessmentTemplate) {
-          if (_.exists(assessmentTemplate, 'procedure_description.length')) {
-            data.test_plan = assessmentTemplate.procedure_description;
-          }
-          if (_.exists(assessmentTemplate, 'test_plan_procedure') &&
-              _.exists(object, 'test_plan.length')) {
-            data.test_plan = object.test_plan;
-          }
-        }
         data.run_in_background = true;
+
+        if (template) {
+          data.template = {
+            id: Number(template),
+            type: 'AssessmentTemplate'
+          };
+        }
         return new CMS.Models.Assessment(data).save();
       },
       notify: function () {

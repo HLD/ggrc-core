@@ -1,152 +1,131 @@
 {{!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
 
-{{#instance}}
+
   <div class="row-fluid wrap-row">
 
-    <div class="span6">
-        <section class="info">
-            {{#if requests_any}}
-                <div class="info-pane-utility">
-                    <add-object-button 
+    <div class="span12">
+        <section class="info audit-summary">
+            <div class="info-pane-utility">
+                {{^if instance.archived}}
+                    <add-object-button
                         instance="instance"
-                        linkclass="btn btn-small btn-primary"
-                        content="+ Add Request"
-                        title="Create Request"
-                        singular="Request"
-                        plural="requests">
-                    </add-object-button>
-                </div>
-            {{/if}}
-            <div class="tier-content">
-                <div class="pane-header">
-                    {{#instance}}
-                        <div class="row-fluid">
-                            <div class="span9">
-                                <h3>Requests {{#if requests_any}}({{requests_total}}){{/if}}</h3>
-                            </div>
-                            <div class="span12" style="margin-left: 0px;">
-                                <hr>
-                            </div>
-                        </div>
-                    {{/instance}}
-                </div>
-            </div>
-            <div class="row-fluid centered">
-                <div class="span12" {{#if requests_none}}style="visibility: hidden; max-height: 0px;"{{/if}}>
-                    <div id="piechart_audit_requests_chart" style="min-height: 300px;"></div>
-                </div>
-                {{#if requests_isLoading}}
-                    <div class="span12 centered">
-                        <spinner toggle="requests_isLoading"></spinner>
-                    </div> 
-                {{else}}
-                    {{#if requests_any}}
-                        <div class="span12" style="margin-left: 0px;">
-                            <hr>
-                        </div>
-                        <div class="span12 centered">
-                            <a href="#Request_widget">View all requests &raquo;</a>
-                        </div>
-                    {{else}}
-                        {{#if requests_isLoaded}}
-                            <div class="span12">
-                                There are no requests at the moment. You can start by creating one here.
-                                <br>
-                            </div>
-                            <div class="span12">
-                            </div>
-                            <div class="span12">
-                                <add-object-button 
-                                    instance="instance"
-                                    linkclass="btn btn-small btn-primary"
-                                    content="+ Add Request"
-                                    title="Create Request"
-                                    singular="Request"
-                                    plural="requests">
-                                </add-object-button>
-                            </div>
-                        {{/if}}
-                    {{/if}}
-                {{/if}}
-            </div>
-        </section>
-    </div>
-
-    <div class="span6">
-        <section class="info">
-            {{#if assessments_any}}
-                <div class="info-pane-utility">
-                    <add-object-button 
-                        instance="instance"
-                        linkclass="btn btn-small btn-draft"
-                        content="+ Add assessment"
-                        title="Create Assessment"
+                        linkclass="btn btn-small btn-white"
+                        content="Create assessment"
+                        text="Create Assessment"
                         singular="Assessment"
-                        plural="assessments">
+                        plural="assessments"
+                        noparams="true">
                     </add-object-button>
-                    <add-object-button 
+
+                    <add-object-button
                         instance="instance"
-                        linkclass="btn btn-small btn-primary"
-                        content="+ Add Template"
-                        title="Define Assessment Template"
+                        linkclass="btn btn-small btn-darkBlue"
+                        content="Create Template"
+                        text="Define Assessment Template"
                         singular="AssessmentTemplate"
                         plural="assessment_templates">
                     </add-object-button>
-                    <assessment-generator-button audit="instance" button='true'></assessment-generator-button>
-                </div>
-            {{/if}}
+                    {{#is_allowed 'create' 'Assessment' context=instance.context}}
+                        <assessment-generator-button audit="instance" button='true'></assessment-generator-button>
+                    {{/is_allowed}}
+                {{/if}}
+            </div>
+
             <div class="tier-content">
                 <div class="pane-header">
                     {{#instance}}
                         <div class="row-fluid">
-                            <div class="span3">
-                                <h3 style="max-width: 100%; margin-right: 0px;">Assessments {{#if assessments_any}}({{assessments_total}}){{/if}}</h3>
-                            </div>
-                            <div class="span12" style="margin-left: 0px;">
-                                <hr>
+                            <div class="span3 title">
+                                <h3>Assessments</h3>
                             </div>
                         </div>
                     {{/instance}}
                 </div>
             </div>
-            <div class="row-fluid centered">
-                <div class="span12" {{#if assessments_none}}style="visibility: hidden; max-height: 0px;"{{/if}}>
-                    <div id="piechart_audit_assessments_chart" style="min-height: 300px;"></div>
+            <div class="row-fluid centered piechart">
+                <div class="span6 {{#if charts.Assessment.none}}hidden{{/if}}" >
+                    <div id="piechart_audit_assessments_chart"></div>
                 </div>
-                {{#if assessments_isLoading}}
+                <div class="span6 legend {{#if_helpers '\
+                                            ^if' charts.Assessment.isLoaded '\
+                                            or #if' charts.Assessment.none}}hidden{{/if_helpers}}">
+                  <table id="piechart_audit_assessments_chart-legend" class="piechart-legend">
+                    <thead>
+                      <tr>
+                        <th>
+                          State
+                        </th>
+                        <th>
+                          Count
+                        </th>
+                        <th>
+                          Percent
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {{#each charts.Assessment.legend}}
+                        <tr data-row-index="{{rowIndex}}">
+                          <td style="color: {{color}}">
+                            <i class="fa fa-circle"></i> {{title}}
+                          </td>
+                          <td>
+                            {{count}}
+                          </td>
+                          <td>
+                            {{percent}} %
+                          </td>
+                        </tr>
+                      {{/each}}
+                    <tbody>
+                    <tfoot>
+                      <tr>
+                        <td>
+                          Total
+                        </td>
+                        <td>
+                          {{charts.Assessment.total}}
+                        </td>
+                        <td>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                {{#if charts.Assessment.isLoading}}
                     <div class="span12 centered">
-                        <spinner toggle="assessments_isLoading"></spinner>
-                    </div> 
+                        <spinner toggle="charts.Assessment.isLoading"></spinner>
+                    </div>
                 {{else}}
-                    {{#if assessments_any}}
-                        <div class="span12" style="margin-left: 0px;">
+                    {{#if charts.Assessment.any}}
+                        <div class="span12" style="margin-left: 0;">
                             <hr>
                         </div>
                         <div class="span12 centered">
                             <a href="#assessment_widget">View all assessments &raquo;</a>
                         </div>
                     {{else}}
-                        {{#if assessments_isLoaded}}
+                        {{#if charts.Assessment.isLoaded}}
                             <div class="span12">
-                                There are no assessments at the moment. 
+                                There are no assessments at the moment.
                                 {{#is_allowed 'create' 'AssessmentTemplate' context=instance.context}}
                                     {{#is_allowed 'create' 'Assessment' context=instance.context}}
-                                        Start by 
-                                        <add-object-button 
+                                        Start by
+                                        <add-object-button
                                             instance="instance"
                                             content="creating an assessment template"
-                                            title="Define Assessment Template"
+                                            text="Define Assessment Template"
                                             singular="AssessmentTemplate"
                                             plural="assessment_templates">
                                         </add-object-button>
-                                        or add an 
-                                        <add-object-button 
+                                        or add an
+                                        <add-object-button
                                             instance="instance"
                                             content="assessment manually"
-                                            title="Create Assessment"
+                                            text="Create Assessment"
                                             singular="Assessment"
                                             plural="assessments">
                                         </add-object-button>
@@ -155,16 +134,6 @@
                             </div>
                             <div class="span12">
                             </div>
-                            <div class="span12">
-                                <add-object-button 
-                                    instance="instance"
-                                    linkclass="btn btn-small btn-primary"
-                                    content="+ Add Template"
-                                    title="Define Assessment Template"
-                                    singular="AssessmentTemplate"
-                                    plural="assessment_templates">
-                                </add-object-button>
-                            </div>
                         {{/if}}
                     {{/if}}
                 {{/if}}
@@ -172,5 +141,3 @@
         </section>
     </div>
   </div>
-
-{{/instance}}

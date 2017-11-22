@@ -1,20 +1,26 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
-from .mixins import BusinessObject, CustomAttributable
-from .object_owner import Ownable
+from ggrc.access_control.roleable import Roleable
+from ggrc.fulltext.mixin import Indexed
+from ggrc.models.comment import Commentable
+from .mixins import BusinessObject, CustomAttributable, TestPlanned
+from .object_document import PublicDocumentable
 from .object_person import Personable
 from .audit_object import Auditable
-from .track_object_state import HasObjectState, track_state_for_class
+from .track_object_state import HasObjectState
 from .relationship import Relatable
+from .mixins.with_last_assessment_date import WithLastAssessmentDate
 
 
-class Objective(HasObjectState, CustomAttributable, Auditable, Relatable,
-                Personable, Ownable, BusinessObject, db.Model):
+class Objective(WithLastAssessmentDate, Roleable, HasObjectState,
+                CustomAttributable, Auditable, Relatable, Personable,
+                PublicDocumentable, Commentable, TestPlanned, BusinessObject,
+                Indexed, db.Model):
   __tablename__ = 'objectives'
-  _publish_attrs = []
   _include_links = []
-  _aliases = {"url": "Objective URL"}
-
-track_state_for_class(Objective)
+  _aliases = {
+      "document_url": None,
+      "document_evidence": None,
+  }

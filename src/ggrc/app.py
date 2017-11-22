@@ -1,7 +1,8 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Sets up Flask app."""
+
 
 import re
 from logging import getLogger
@@ -12,7 +13,6 @@ from flask.ext.sqlalchemy import get_debug_queries
 from flask.ext.sqlalchemy import SQLAlchemy
 from tabulate import tabulate
 
-from ggrc import contributions  # noqa: imported so it can be used with getattr
 from ggrc import db
 from ggrc import extensions
 from ggrc import notifications
@@ -37,6 +37,10 @@ for key in settings.exports:
 db.app = app
 db.init_app(app)
 
+# This should be imported after db.init_app id performed.
+# Imported so it can be used with getattr.
+from ggrc import contributions  # noqa  # pylint: disable=unused-import,wrong-import-position
+
 
 @app.before_request
 def _ensure_session_teardown():
@@ -47,6 +51,23 @@ def _ensure_session_teardown():
   """
   if db.session.registry.has():
     db.session.remove()
+
+
+@app.before_request
+def setup_user_timezone_offset():
+  """Setup user timezon for current request
+
+  It will setup from request header `X-UserTimezoneOffset`
+  offset will be sent in minutes.
+  """
+  from flask import request
+  from flask import g
+  g.user_timezone_offset = request.headers.get("X-UserTimezoneOffset")
+
+
+def setup_error_handlers(app_):
+  from ggrc.utils import error_handlers
+  error_handlers.register_handlers(app_)
 
 
 def init_models(app_):
@@ -90,19 +111,19 @@ def init_extension_blueprints(app_):
       app_.register_blueprint(extension_module.blueprint)
 
 
-def init_indexer():
-  import ggrc.fulltext
-  ggrc.indexer = ggrc.fulltext.get_indexer()
-
-
 def init_permissions_provider():
   from ggrc.rbac import permissions
   permissions.get_permissions_provider()
 
 
 def init_extra_listeners():
+  """Initializes listeners for additional services"""
   from ggrc.automapper import register_automapping_listeners
+  from ggrc.snapshotter.listeners import register_snapshot_listeners
+  from ggrc.fulltext import listeners
   register_automapping_listeners()
+  register_snapshot_listeners()
+  listeners.register_fulltext_listeners()
 
 
 def _enable_debug_toolbar():
@@ -126,12 +147,7 @@ def _enable_jasmine():
     jasmine = Jasmine(app)
 
     jasmine.sources(
-        Asset("dashboard-js"),
-        Asset("dashboard-js-spec-helpers"),
         Asset("dashboard-js-templates"))
-
-    jasmine.specs(
-        Asset("dashboard-js-specs"))
 
 
 def _display_sql_queries():
@@ -182,6 +198,8 @@ def _display_sql_queries():
             logger.warning("Statement failed: %s", statement, exc_info=True)
       return response
 
+
+setup_error_handlers(app)
 init_models(app)
 configure_flask_login(app)
 configure_webassets(app)
@@ -189,7 +207,6 @@ configure_jinja(app)
 init_services(app)
 init_views(app)
 init_extension_blueprints(app)
-init_indexer()
 init_permissions_provider()
 init_extra_listeners()
 notifications.register_notification_listeners()

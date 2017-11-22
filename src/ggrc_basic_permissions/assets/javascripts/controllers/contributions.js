@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -397,6 +397,7 @@
           return join.refresh().then(function () {
             return join.destroy();
           }).then(function () {
+            self.refresh_object_list();
             self.element.trigger('relationshipdestroyed', join);
           });
         }
@@ -413,6 +414,7 @@
           join.save().then(function () {
             self.join_list.push(join);
             self.refresh_option_list();
+            self.refresh_object_list();
             self.element.trigger('relationshipcreated', join);
           });
         });

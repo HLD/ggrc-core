@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -12,13 +12,19 @@
       GGRC.mustache_path +
       '/components/add-object-button/add-object-button.mustache'
     ),
-    scope: {
+    viewModel: {
       instance: null,
       linkclass: '@',
       content: '@',
-      title: '@',
+      text: '@',
       singular: '@',
-      plural: '@'
+      plural: '@',
+      define: {
+        noparams: {
+          type: 'htmlbool',
+          value: false
+        }
+      }
     }
   });
 })(window.can);

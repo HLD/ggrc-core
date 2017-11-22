@@ -1,11 +1,12 @@
 
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
 from sqlalchemy.orm import validates
 from ggrc.models.deferred import deferred
 from ggrc.models.mixins import Base, Hierarchical
+from ggrc.models import reflection
 
 
 class CategorizedPublishable(object):
@@ -24,6 +25,7 @@ class CategorizedPublishable(object):
 
 
 class CategoryBase(Hierarchical, Base, db.Model):
+  """Base class for Categories"""
   _table_plural = 'category_bases'
   __tablename__ = 'categories'
 
@@ -45,16 +47,20 @@ class CategoryBase(Hierarchical, Base, db.Model):
       cascade='all, delete-orphan',
   )
 
+  def __str__(self):
+    return self.name
+
+  # pylint: disable=unused-argument
   @validates('type')
   def validates_type(self, key, value):
     return self.__class__.__name__
 
   # REST properties
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'name',
       'type',
       'required',
-  ]
+  )
   _sanitize_html = [
       'name',
   ]

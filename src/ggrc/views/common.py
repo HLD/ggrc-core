@@ -1,31 +1,18 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 import ggrc.builder
-from blinker import Namespace
-from flask import redirect, request, render_template, current_app
+from flask import request, render_template, current_app
 from ggrc.rbac import permissions
 from ggrc.services.common import \
     ModelView, as_json, inclusion_filter, filter_resource
-from ggrc.utils import view_url_for, benchmark
+from ggrc.utils import benchmark
 from werkzeug.exceptions import Forbidden
 
 
 class BaseObjectView(ModelView):
   model_template = '{model_plural}/show.haml'
   base_template = 'base_objects/show.haml'
-
-  signals = Namespace()
-  extension_contributions = signals.signal('View Extension Contributions',
-                                           """
-      Gathers any extension contributions to be included into a template.
-      Receiver functions must expect the following arguments:
-      :sender: The model class of the object being rendered.
-      :obj: the model instance being rendered.
-      :context: A context for extensions to use in rendering the their
-          contribution.
-      """,
-                                           )
 
   def dispatch_request(self, *args, **kwargs):
     method = request.method.lower()
@@ -71,14 +58,6 @@ class BaseObjectView(ModelView):
     template_paths =\
         self.get_model_template_paths_for_object(obj) + [self.base_template]
     return render_template(template_paths, **context)
-
-  def extension_content(self, obj):
-    contributions = self.extension_contributions.send(
-        obj.__class__,
-        obj=obj,
-        context=self.get_context_for_object(obj),
-    )
-    return [template for func, template in contributions if template]
 
   def get(self, id):
     with benchmark("Query for object"):
@@ -129,23 +108,3 @@ class BaseObjectView(ModelView):
     app.add_url_rule(view_route, view_class.endpoint_name(),
                      view_func=view_func,
                      methods=['GET'])
-
-
-class RedirectedPolymorphView(BaseObjectView):
-
-  """Out of paranoia, be sure to redirect any direct link to a Directive view
-  to the appropriate view for one of its polymorpic representations.
-  """
-
-  def get(self, id):
-    obj = self.get_object(id)
-    if obj is None:
-      return self.not_found_response()
-    if 'Accept' in self.request.headers and\
-            'text/html' not in self.request.headers['Accept']:
-      return current_app.make_response((
-          'text/html', 406, [('Content-Type', 'text/plain')]))
-    if not permissions.is_allowed_read(self.model.__name__, obj.id,
-                                       obj.context_id):
-      raise Forbidden()
-    return redirect(view_url_for(obj))

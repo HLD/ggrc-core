@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Module for handling a single import block.
@@ -12,12 +12,15 @@ from collections import defaultdict
 from collections import OrderedDict
 from collections import Counter
 
+from cached_property import cached_property
 from sqlalchemy import exc
 from sqlalchemy import or_
 from sqlalchemy import and_
+from sqlalchemy.orm.exc import UnmappedInstanceError
 
 from ggrc import db
 from ggrc import models
+from ggrc.rbac import permissions
 from ggrc.utils import benchmark
 from ggrc.utils import structures
 from ggrc.converters import errors
@@ -27,10 +30,13 @@ from ggrc.converters.base_row import RowConverter
 from ggrc.converters.import_helper import get_column_order
 from ggrc.converters.import_helper import get_object_column_definitions
 from ggrc.services.common import get_modified_objects
-from ggrc.services.common import update_index
+from ggrc.services.common import update_snapshot_index
 from ggrc.services.common import update_memcache_after_commit
 from ggrc.services.common import update_memcache_before_commit
-from ggrc.services.common import log_event
+from ggrc.utils.log_event import log_event
+from ggrc.services import signals
+from ggrc_workflows.models.cycle_task_group_object_task import \
+    CycleTaskGroupObjectTask
 
 
 # pylint: disable=invalid-name
@@ -40,6 +46,7 @@ CACHE_EXPIRY_IMPORT = 600
 
 
 class BlockConverter(object):
+  # pylint: disable=too-many-public-methods
 
   """ Main block converter class for dealing with csv files and data
 
@@ -89,12 +96,17 @@ class BlockConverter(object):
     # This class holds cache and object data for all rows and handlers below
     # it, so it is expected to hold a lot of instance attributes.
     # The protected access is a false warning for inflector access.
+    self.revision_ids = []
     self._mapping_cache = None
+    self._owners_cache = None
+    self._roles_cache = None
+    self._user_roles_cache = None
     self._ca_definitions_cache = None
     self.converter = converter
     self.offset = options.get("offset", 0)
     self.object_class = options.get("object_class")
     self.rows = options.get("rows", [])
+    self.operation = 'import' if self.rows else 'export'
     self.object_ids = options.get("object_ids", [])
     self.block_errors = []
     self.block_warnings = []
@@ -102,21 +114,49 @@ class BlockConverter(object):
     self.row_warnings = []
     self.row_converters = []
     self.ignore = False
-    if not self.object_class:
-      class_name = options.get("class_name", "")
-      self.add_errors(errors.WRONG_OBJECT_TYPE, line=self.offset + 2,
-                      object_name=class_name)
+    self._has_non_importable_columns = False
+    # For import contains model name from csv file.
+    # For export contains 'Model.__name__' value.
+    self.class_name = options.get("class_name", "")
+    # TODO: remove 'if' statement. Init should initialize only.
+    if self.object_class:
+      self.object_headers = get_object_column_definitions(self.object_class)
+      all_header_names = [unicode(key)
+                          for key in self.get_header_names().keys()]
+      raw_headers = options.get("raw_headers", all_header_names)
+      self.check_for_duplicate_columns(raw_headers)
+      self.headers = self.clean_headers(raw_headers)
+      self.unique_counts = self.get_unique_counts_dict(self.object_class)
+      self.table_singular = self.object_class._inflector.table_singular
+      self.name = self.object_class._inflector.human_singular.title()
+      self.organize_fields(options.get("fields", []))
+    else:
       self.name = ""
+
+  def check_block_restrictions(self):
+    """Check some block related restrictions"""
+    if not self.object_class:
+      self.add_errors(errors.WRONG_OBJECT_TYPE, line=self.offset + 2,
+                      object_name=self.class_name)
       return
-    self.object_headers = get_object_column_definitions(self.object_class)
-    all_header_names = [unicode(key) for key in self.get_header_names().keys()]
-    raw_headers = options.get("raw_headers", all_header_names)
-    self.check_for_duplicate_columns(raw_headers)
-    self.headers = self.clean_headers(raw_headers)
-    self.unique_counts = self.get_unique_counts_dict(self.object_class)
-    self.table_singular = self.object_class._inflector.table_singular
-    self.name = self.object_class._inflector.human_singular.title()
-    self.organize_fields(options.get("fields", []))
+    if (self.operation == 'import' and
+            self.object_class is CycleTaskGroupObjectTask and
+            not permissions.is_admin()):
+      self.add_errors(errors.PERMISSION_ERROR, line=self.offset + 2)
+      logger.error("Import failed with: Only admin can update existing "
+                   "cycle-tasks via import")
+    if self._has_non_importable_columns:
+      importable_column_names = []
+      for field_name in self.object_class.IMPORTABLE_FIELDS:
+        if field_name == 'slug':
+          continue
+        if field_name not in self.headers:
+          continue
+        importable_column_names.append(
+            self.headers[field_name]["display_name"])
+      self.add_warning(errors.ONLY_IMPORTABLE_COLUMNS_WARNING,
+                       line=self.offset + 2,
+                       columns=", ".join(importable_column_names))
 
   def _create_ca_definitions_cache(self):
     """Create dict cache for custom attribute definitions.
@@ -130,20 +170,23 @@ class BlockConverter(object):
     return {(d.definition_id, d.title): d for d in defs}
 
   def get_ca_definitions_cache(self):
+    """Return cached property value _ca_definitions_cache."""
     if self._ca_definitions_cache is None:
       self._ca_definitions_cache = self._create_ca_definitions_cache()
     return self._ca_definitions_cache
 
-  def _create_mapping_cache(self):
-    """Create mapping cache for object in the current block."""
-    def identifier(obj):
-      return getattr(obj, "slug", getattr(obj, "email", None))
-
+  def _get_relationships(self):
+    """Get all relationships for any of the object in the current block."""
     relationship = models.Relationship
-
-    with benchmark("cache for: {}".format(self.object_class.__name__)):
-      with benchmark("cache query"):
-        relationships = relationship.eager_query().filter(or_(
+    with benchmark("Fetch all block relationships"):
+      relationships = []
+      if self.object_ids:
+        relationships = db.session.query(
+            relationship.source_id,
+            relationship.source_type,
+            relationship.destination_id,
+            relationship.destination_type,
+        ).filter(or_(
             and_(
                 relationship.source_type == self.object_class.__name__,
                 relationship.source_id.in_(self.object_ids),
@@ -153,29 +196,139 @@ class BlockConverter(object):
                 relationship.destination_id.in_(self.object_ids),
             )
         )).all()
+      return relationships
+
+  def _get_identifier_mappings(self, relationships):
+    """Get object and id mapping to user visible identifier."""
+    object_ids = defaultdict(set)
+    for rel in relationships:
+      if rel.source_type == self.object_class.__name__:
+        object_ids[rel.destination_type].add(rel.destination_id)
+      else:
+        object_ids[rel.source_type].add(rel.source_id)
+
+    id_map = {}
+    for object_type, ids in object_ids.items():
+      model = getattr(models.all_models, object_type, None)
+      if hasattr(model, "slug"):
+        id_column = getattr(model, "slug")
+      elif hasattr(model, "email"):
+        id_column = getattr(model, "email")
+      else:
+        continue
+      query = db.session.query(model.id, id_column).filter(model.id.in_(ids))
+      id_map[object_type] = dict(query)
+    return id_map
+
+  def _create_mapping_cache(self):
+    """Create mapping cache for object in the current block."""
+
+    with benchmark("cache for: {}".format(self.object_class.__name__)):
+      relationships = self._get_relationships()
+      id_map = self._get_identifier_mappings(relationships)
       with benchmark("building cache"):
         cache = defaultdict(lambda: defaultdict(list))
         for rel in relationships:
-          try:
-            if rel.source_type == self.object_class.__name__:
-              if rel.destination:
-                cache[rel.source_id][rel.destination_type].append(
-                    identifier(rel.destination))
-            elif rel.source:
-              cache[rel.destination_id][rel.source_type].append(
-                  identifier(rel.source))
-          except AttributeError:
-            # Some relationships have an invalid state in the database and make
-            # rel.source or rel.destination fail. These relationships are
-            # ignored everywhere and should eventually be purged from the db
-            logger.error("Failed adding object to relationship cache. "
-                         "Rel id: %s", rel.id)
+          if rel.source_type == self.object_class.__name__:
+            identifier = id_map.get(rel.destination_type, {}).get(
+                rel.destination_id)
+            if identifier:
+              cache[rel.source_id][rel.destination_type].append(identifier)
+          else:
+            identifier = id_map.get(rel.source_type, {}).get(rel.source_id)
+            if identifier:
+              cache[rel.destination_id][rel.source_type].append(identifier)
       return cache
 
   def get_mapping_cache(self):
+    """Return mapping_cache attribute."""
     if self._mapping_cache is None:
       self._mapping_cache = self._create_mapping_cache()
     return self._mapping_cache
+
+  def get_role(self, name):
+    """Get role from local cache for a given name."""
+    if not self._roles_cache:
+      self._roles_cache = {role.name: role for role in
+                           models.all_models.Role.query}
+    return self._roles_cache[name]
+
+  def _create_user_roles_cache(self):
+    """Create cache for user roles.
+
+    The cache returns a list of emails for a role in a context.
+    """
+    cache = defaultdict(lambda: defaultdict(set))
+    context_ids = {rc.obj.context_id for rc in self.row_converters}
+    user_roles = db.session.query(
+        models.all_models.UserRole.context_id,
+        models.all_models.UserRole.role_id,
+        models.all_models.UserRole.person_id,
+    ).filter(
+        models.all_models.UserRole.context_id.in_(context_ids)
+    ).all()
+
+    if not user_roles:
+      return cache
+
+    people_ids = {role[2] for role in user_roles}
+
+    emails_map = dict(db.session.query(
+        models.Person.id,
+        models.Person.email
+    ).filter(
+        models.Person.id.in_(people_ids)
+    ))
+
+    for context_id, role_id, person_id in user_roles:
+      cache[context_id][role_id].add(emails_map[person_id])
+    return cache
+
+  def get_user_roles_cache(self):
+    """Get cache for emails on user roles by context."""
+    if self._user_roles_cache is None:
+      self._user_roles_cache = self._create_user_roles_cache()
+    return self._user_roles_cache
+
+  def _create_owners_cache(self):
+    """Create a cache of emails for all object owners."""
+    owner_ids = set()
+    for row_converter in self.row_converters:
+      owners = getattr(row_converter.obj, "object_owners", None)
+      if owners:
+        owner_ids |= {o.person_id for o in owners}
+    if not owner_ids:
+      return {}
+    query = db.session.query(
+        models.Person.id,
+        models.Person.email
+    ).filter(
+        models.Person.id.in_(owner_ids)
+    )
+    return dict(query)
+
+  def get_owners_cache(self):
+    """Get object owners email cache."""
+    if self._owners_cache is None:
+      self._owners_cache = self._create_owners_cache()
+    return self._owners_cache
+
+  @cached_property
+  def mapped_snapshots(self):
+    """Cached property of mapped to audit snapshots"""
+    # pylint: disable=protected-access
+    snapshots = defaultdict(lambda: defaultdict(set))
+    query = db.session.query(
+        models.Revision.resource_slug,
+        models.Snapshot.parent_id,
+        models.Snapshot.child_type,
+    ).join(models.Snapshot).filter(
+        models.Snapshot.parent_type == self.object_class.__name__,
+        models.Snapshot.parent_id.in_(self.object_ids),
+    )
+    for slug, parent_id, child_type in query:
+      snapshots[parent_id][child_type].add(slug)
+    return snapshots
 
   def check_for_duplicate_columns(self, raw_headers):
     """Check for duplicate column names in the current block.
@@ -193,6 +346,7 @@ class BlockConverter(object):
                       duplicates=", ".join(duplicates))
 
   def organize_fields(self, fields):
+    """Setup fields property."""
     if fields == "all":
       fields = self.object_headers.keys()
     self.fields = get_column_order(fields)
@@ -206,13 +360,14 @@ class BlockConverter(object):
       if self.object_headers[field]["mandatory"]:
         display_name += "*"
       headers.append([description, display_name])
-    return map(list, zip(*headers))
+    return [list(header) for header in zip(*headers)]
 
   def generate_csv_body(self):
     """ Generate 2D array populated with object values """
     return [r.to_array(self.fields) for r in self.row_converters]
 
   def to_array(self):
+    """Return tuple of csv_header and csv_body."""
     csv_header = self.generate_csv_header()
     csv_body = self.generate_csv_body()
     return csv_header, csv_body
@@ -235,14 +390,20 @@ class BlockConverter(object):
     Returns:
       Ordered Dictionary containing all valid headers
     """
-
-    headers = [self._sanitize_header(val) for val in raw_headers]
     clean_headers = OrderedDict()
     header_names = self.get_header_names()
     removed_count = 0
-    for index, header in enumerate(headers):
+    for index, raw_header in enumerate(raw_headers):
+      header = self._sanitize_header(raw_header)
       if header in header_names:
         field_name = header_names[header]
+        if (self.operation == 'import' and
+                hasattr(self.object_class, "IMPORTABLE_FIELDS") and
+                field_name not in self.object_class.IMPORTABLE_FIELDS):
+          self._has_non_importable_columns = True
+          self.remove_column(index - removed_count)
+          removed_count += 1
+          continue
         clean_headers[field_name] = self.object_headers[field_name]
       else:
         self.add_warning(errors.UNKNOWN_COLUMN,
@@ -308,16 +469,24 @@ class BlockConverter(object):
       self.remove_duplicate_keys(key, counts)
 
   def get_info(self):
-    created, updated, ignored, deleted = 0, 0, 0, 0
+    """Returns info dict for current block."""
+    created = 0
+    updated = 0
+    ignored = 0
+    deleted = 0
+    deprecated = 0
     for row in self.row_converters:
       if row.ignore:
         ignored += 1
-      elif row.is_delete:
+        continue
+      if row.is_delete:
         deleted += 1
-      elif row.is_new:
+        continue
+      if row.is_new:
         created += 1
       else:
         updated += 1
+      deprecated += int(row.is_deprecated)
     info = {
         "name": self.name,
         "rows": len(self.rows),
@@ -325,6 +494,7 @@ class BlockConverter(object):
         "updated": updated,
         "ignored": ignored,
         "deleted": deleted,
+        "deprecated": deprecated,
         "block_warnings": self.block_warnings,
         "block_errors": self.block_errors,
         "row_warnings": self.row_warnings,
@@ -334,6 +504,7 @@ class BlockConverter(object):
     return info
 
   def import_secondary_objects(self, slugs_dict):
+    """Import secondary objects procedure."""
     for row_converter in self.row_converters:
       row_converter.setup_secondary_objects(slugs_dict)
 
@@ -347,25 +518,32 @@ class BlockConverter(object):
           row_converter.add_error(errors.UNKNOWN_ERROR)
       self.save_import()
 
-  def import_objects(self):
-    """Add all objects to the database.
-
-    This function flushes all objects to the database and if the dry_run flag
-    is not set, the session gets committed and all signals for the imported
-    objects get sent.
-    """
-    if self.ignore:
-      return
-
+  def _import_objects_prepare(self):
+    """Setup all objects and do pre-commit checks for them."""
     for row_converter in self.row_converters:
       row_converter.setup_object()
 
     for row_converter in self.row_converters:
       self._check_object(row_converter)
 
+    self.clean_session_from_ignored_objs()
+
+  def import_objects(self):
+    """Add all objects to the database.
+
+    This function flushes all objects to the database if the dry_run flag is
+    not set and all signals for the imported objects get sent.
+    """
+    if self.ignore:
+      return
+
+    self._import_objects_prepare()
+
     if not self.converter.dry_run:
+      new_objects = []
       for row_converter in self.row_converters:
         row_converter.send_pre_commit_signals()
+      for row_converter in self.row_converters:
         try:
           row_converter.insert_object()
           db.session.flush()
@@ -373,26 +551,67 @@ class BlockConverter(object):
           db.session.rollback()
           logger.exception("Import failed with: %s", err.message)
           row_converter.add_error(errors.UNKNOWN_ERROR)
-      self.save_import()
+        else:
+          if row_converter.is_new and not row_converter.ignore:
+            new_objects.append(row_converter.obj)
+      self.send_collection_post_signals(new_objects)
+      import_event = self.save_import()
       for row_converter in self.row_converters:
-        row_converter.send_post_commit_signals()
+        row_converter.send_post_commit_signals(event=import_event)
+
+  def clean_session_from_ignored_objs(self):
+    """Clean DB session from ignored objects.
+
+    This function expunges objects from 'db.session' which are in rows that
+    marked as 'ignored' before commit.
+    """
+    for row_converter in self.row_converters:
+      obj = row_converter.obj
+      try:
+        if row_converter.ignore and obj in db.session:
+          db.session.expunge(obj)
+      except UnmappedInstanceError:
+        continue
+
+  @staticmethod
+  def send_collection_post_signals(new_objects):
+    """Send bulk create pre-commit signals."""
+    if not new_objects:
+      return
+    collections = {}
+    for obj in new_objects:
+      collections.setdefault(obj.__class__, []).append(obj)
+    for object_class, objects in collections.iteritems():
+      signals.Restful.collection_posted.send(
+          object_class,
+          objects=objects,
+          sources=[{} for _ in xrange(len(objects))],
+      )
+
+  def _store_revision_ids(self, event):
+    """Store revision ids from the current event."""
+    if event:
+      self.revision_ids.extend(revision.id for revision in event.revisions)
 
   def save_import(self):
     """Commit all changes in the session and update memcache."""
     try:
       modified_objects = get_modified_objects(db.session)
-      log_event(db.session, None)
+      import_event = log_event(db.session, None)
       update_memcache_before_commit(
           self, modified_objects, CACHE_EXPIRY_IMPORT)
       db.session.commit()
+      self._store_revision_ids(import_event)
       update_memcache_after_commit(self)
-      update_index(db.session, modified_objects)
+      update_snapshot_index(db.session, modified_objects)
+      return import_event
     except exc.SQLAlchemyError as err:
       db.session.rollback()
       logger.exception("Import failed with: %s", err.message)
       self.add_errors(errors.UNKNOWN_ERROR, line=self.offset + 2)
 
   def add_errors(self, template, **kwargs):
+    """Add errors for current block."""
     message = template.format(**kwargs)
     self.block_errors.append(message)
     self.ignore = True
@@ -401,18 +620,11 @@ class BlockConverter(object):
     message = template.format(**kwargs)
     self.block_warnings.append(message)
 
-  def get_new_values(self, key):
-    values = set([row.get_value(key) for row in self.row_converters])
-    return self.object_class, values
-
-  def get_new_objects(self):
-    objects = set([row.obj for row in self.row_converters])
-    return self.object_class, objects
-
   def generate_unique_counts(self):
-    unique = [key for key, header in self.object_headers.items()
-              if header["unique"]]
-    for key in unique:
+    """Populate unique_counts for sent data."""
+    for key, header in self.object_headers.items():
+      if not header["unique"]:
+        continue
       for index, row in enumerate(self.row_converters):
         value = row.get_value(key)
         if value:
@@ -446,7 +658,8 @@ class BlockConverter(object):
         if self.in_range(index, remove_offset=False):
           self.row_converters[index].set_ignore()
 
-  def _sanitize_header(self, header):
+  @staticmethod
+  def _sanitize_header(header):
     """Sanitaze column header string.
 
     Since we rely on header names to get the correct handlers, we should allow
@@ -467,18 +680,16 @@ class BlockConverter(object):
       header = ":".join(part.strip() for part in header.split(":"))
     return header
 
-  def _check_object(self, row_converter):
+  @staticmethod
+  def _check_object(row_converter):
     """Check object if it has any pre commit checks.
 
-    Object will not be checked if there's already an error on and it's marked
-    as ignored. The check functions can mutate the row_converter object and
-    mark it to be ignored if there are any errors detected.
+    The check functions can mutate the row_converter object and mark it
+    to be ignored if there are any errors detected.
 
     Args:
       row_converter: Row converter for the row we want to check
     """
-    if row_converter.ignore:
-      return
-    checker = pre_commit_checks.CHECKS.get(row_converter.obj.type)
+    checker = pre_commit_checks.CHECKS.get(type(row_converter.obj).__name__)
     if checker and callable(checker):
       checker(row_converter)

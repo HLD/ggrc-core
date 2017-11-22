@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Tests for PUT and POST requests for objects with custom attributes
@@ -15,15 +15,15 @@ from ggrc import utils
 from ggrc import models
 from ggrc import builder
 
-from integration.ggrc import services
+from integration.ggrc.services import TestCase
 from integration.ggrc.generator import ObjectGenerator
 
 
-class ProductTestCase(services.TestCase):
+class ProductTestCase(TestCase):
   """Test case for Product post and put requests."""
 
   def setUp(self):
-    services.TestCase.setUp(self)
+    super(ProductTestCase, self).setUp()
     self.generator = ObjectGenerator()
     self.client.get("/login")
 

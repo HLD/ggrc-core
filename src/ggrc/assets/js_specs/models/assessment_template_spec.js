@@ -1,5 +1,5 @@
 /*!
-  Copyright (C) 2016 Google Inc.
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -17,136 +17,6 @@ describe('can.Model.AssessmentTemplate', function () {
     instance = new AssessmentTemplate();
   });
 
-  describe('_choosableObjectTypes() method', function () {
-    var fakeMapper;  // an instance of the fake MapperModel
-    var origMapperModel;
-
-    beforeEach(function () {
-      var FakeMapperModel;
-
-      origMapperModel = GGRC.Models.MapperModel;
-
-      // mock the MapperModel used by the method under test
-      fakeMapper = {
-        types: jasmine.createSpy()
-      };
-      FakeMapperModel = jasmine.createSpy().and.callFake(function (config) {
-        return fakeMapper;
-      });
-
-      GGRC.Models.MapperModel = FakeMapperModel;
-    });
-
-    afterEach(function () {
-      // restore the mocked MapperModel
-      GGRC.Models.MapperModel = origMapperModel;
-    });
-
-    it('returns the types obtained from the mapper model', function () {
-      var result;
-
-      var objectTypes = {
-        groupFoo: {
-          name: 'Foo Objects',
-          items: [{name: 'Foo1'}, {value: 'Foo2'}]
-        },
-        groupBar: {
-          name: 'Bar Objects',
-          items: [{value: 'Bar1'}, {value: 'Bar2'}]
-        }
-      };
-
-      fakeMapper.types.and.returnValue(objectTypes);
-      result = instance._choosableObjectTypes();
-      expect(result).toEqual(objectTypes);
-    });
-
-    it('sorts types within a group by name', function () {
-      var result;
-
-      var objectTypes = {
-        groupFoo: {
-          name: 'Bar-ish Objects',
-          items: [
-            {name: 'Car'}, {name: 'Bar'}, {name: 'Zar'}, {name: 'Dar'}
-          ]
-        }
-      };
-
-      var expected = [
-        {name: 'Bar'}, {name: 'Car'}, {name: 'Dar'}, {name: 'Zar'}
-      ];
-
-      fakeMapper.types.and.returnValue(objectTypes);
-      result = instance._choosableObjectTypes();
-      expect(result.groupFoo.items).toEqual(expected);
-    });
-
-    it('omits the all_objects group from result', function () {
-      var result;
-
-      var objectTypes = {
-        all_objects: {
-          models: ['Foo', 'Bar', 'Baz'],
-          name: 'FooBarBaz-type Objects'
-        }
-      };
-
-      fakeMapper.types.and.returnValue(objectTypes);
-      result = instance._choosableObjectTypes();
-      expect(result.all_objects).toBeUndefined();
-    });
-
-    it('omits the types not relevant to the AssessmentTemplate from result',
-      function () {
-        var result;
-
-        var objectTypes = {
-          groupFoo: {
-            name: 'Foo Objects',
-            items: [
-              {value: 'Contract'},  // this object type is relevant
-              {value: 'Assessment'},
-              {value: 'Audit'},
-              {value: 'CycleTaskGroupObjectTask'},
-              {value: 'Request'}
-            ]
-          },
-          groupBar: {
-            name: 'Bar Objects',
-            items: [
-              {value: 'Policy'},  // this object type is relevant
-              {value: 'TaskGroup'},
-              {value: 'TaskGroupTask'}
-            ]
-          },
-          groupBaz: {
-            name: 'Baz Objects',
-            items: [
-              {value: 'Workflow'}
-            ]
-          }
-        };
-
-        var expected = {
-          groupFoo: {
-            name: 'Foo Objects',
-            items: [{value: 'Contract'}]
-          },
-          groupBar: {
-            name: 'Bar Objects',
-            items: [{value: 'Policy'}]
-          }
-          // the groupBaz group, being empty, is expected to have been removed
-        };
-
-        fakeMapper.types.and.returnValue(objectTypes);
-        result = instance._choosableObjectTypes();
-        expect(result).toEqual(expected);
-      }
-    );
-  });
-
   describe('_packPeopleData() method', function () {
     it('packs default people data into a JSON string', function () {
       var result;
@@ -158,8 +28,6 @@ describe('can.Model.AssessmentTemplate', function () {
 
       result = instance._packPeopleData();
 
-      expect(typeof result).toEqual('string');
-      result = JSON.parse(result);
       expect(result).toEqual({
         assessors: 'Rabbits',
         verifiers: 'Turtles'
@@ -182,8 +50,6 @@ describe('can.Model.AssessmentTemplate', function () {
 
         result = instance._packPeopleData();
 
-        expect(typeof result).toEqual('string');
-        result = JSON.parse(result);
         expect(result).toEqual({
           assessors: [2, 9, 17],
           verifiers: 'Whatever'
@@ -207,8 +73,6 @@ describe('can.Model.AssessmentTemplate', function () {
 
         result = instance._packPeopleData();
 
-        expect(typeof result).toEqual('string');
-        result = JSON.parse(result);
         expect(result).toEqual({
           assessors: 'Whatever',
           verifiers: [6, 11, 12]
@@ -427,18 +291,28 @@ describe('can.Model.AssessmentTemplate', function () {
     var context;
     var $element;
     var eventObj;
+    var greenList;
+    var redList;
 
     beforeEach(function () {
       context = {};
       $element = $('<div></div>');
       eventObj = $.Event();
+      instance.attr('showCaptainAlert', false);
+      greenList = [
+        'Auditors', 'Principal Assignees', 'Secondary Assignees',
+        'Primary Contacts', 'Secondary Contacts',
+      ];
+      redList = [
+        'Admin', 'Audit Lead', 'other',
+      ];
     });
 
     it('sets the assessorsListDisable flag if the corresponding ' +
       'selected option is different from "other"',
       function () {
         instance.attr('assessorsListDisable', false);
-        instance.attr('default_people.assessors', 'Object Owners');
+        instance.attr('default_people.assessors', 'Object Admins');
 
         instance.defaultAssesorsChanged(context, $element, eventObj);
 
@@ -455,6 +329,30 @@ describe('can.Model.AssessmentTemplate', function () {
         instance.defaultAssesorsChanged(context, $element, eventObj);
 
         expect(instance.attr('assessorsListDisable')).toBe(false);
+      }
+    );
+
+    it('showCaptainAlert value is "true" if default assessor ' +
+      'is one of changedList',
+      function () {
+        greenList.map(function (item) {
+          instance.attr('default_people.assessors', item);
+          instance.defaultAssesorsChanged(context, $element, eventObj);
+
+          expect(instance.attr('showCaptainAlert')).toBe(true);
+        });
+      }
+    );
+
+    it('showCaptainAlert value is "false" if default assessor ' +
+      'is NOT one of changedList',
+      function () {
+        redList.map(function (item) {
+          instance.attr('default_people.assessors', item);
+          instance.defaultAssesorsChanged(context, $element, eventObj);
+
+          expect(instance.attr('showCaptainAlert')).toBe(false);
+        });
       }
     );
   });
@@ -474,7 +372,7 @@ describe('can.Model.AssessmentTemplate', function () {
       'selected option is different from "other"',
       function () {
         instance.attr('verifiersListDisable', false);
-        instance.attr('default_people.verifiers', 'Object Owners');
+        instance.attr('default_people.verifiers', 'Object Admins');
 
         instance.defaultVerifiersChanged(context, $element, eventObj);
 

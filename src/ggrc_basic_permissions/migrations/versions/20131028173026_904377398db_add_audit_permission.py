@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 
@@ -161,25 +161,7 @@ audit_read_objects = list(audit_create_objects)
 audit_read_objects.append('Audit')
 
 auditor_read_objects = [
-    'Audit', 'Request',
-    {'type': 'DocumentationResponse',
-     'condition': 'in',
-     'terms': {
-         'value': ['Accepted', 'Completed'],
-         'property_name': 'status',
-     }},
-    {'type': 'InterviewResponse',
-     'condition': 'in',
-     'terms': {
-         'value': ['Accepted', 'Completed'],
-         'property_name': 'status',
-     }},
-    {'type': 'PopulationSampleResponse',
-     'condition': 'in',
-     'terms': {
-         'value': ['Accepted', 'Completed'],
-         'property_name': 'status',
-     }},
+    'Audit', 'Request'
 ]
 
 audit_update_objects = list(audit_read_objects)

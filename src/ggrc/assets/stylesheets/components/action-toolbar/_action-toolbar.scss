@@ -1,0 +1,66 @@
+/*
+ * Copyright (C) 2017 Google Inc.
+ * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+ */
+
+.action-toolbar {
+  position: relative;
+  display: flex;
+  min-width: 0;
+
+  &:hover {
+    .action-toolbar__controls {
+      display: flex;
+    }
+  }
+
+  &__controls {
+    display: none;
+    flex-direction: row;
+    align-items: flex-start;
+    position: relative;
+  }
+
+  &__content-item {
+    min-width: 0;
+  }
+
+  &__controls-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    width: 28px;
+    border-radius: 50%;
+    background: #444;
+    cursor: pointer;
+    margin: 0 0 0 8px;
+
+    &:hover {
+      background: darken(#444, 10%);
+      box-shadow: 0 1px 10px -1px rgba(0, 0, 0, 0.4);
+    }
+
+    &-disabled {
+      opacity: 0.25;
+
+      &:hover {
+        background: #444;
+        box-shadow: none;
+      }
+    }
+
+    .fa {
+      color: $white;
+      font-size: 18px;
+      height: 28px;
+      line-height: 28px;
+      width: 28px;
+      display: inline-flex;
+      justify-content: center;
+      align-self: center;
+      align-items: center;
+      text-align: center;
+    }
+  }
+}

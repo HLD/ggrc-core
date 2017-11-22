@@ -1,9 +1,11 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
-(function (can, $, Clipboard) {
+import Clipboard from 'clipboard';
+
+(function (can, $) {
   'use strict';
 
   can.Component.extend({
@@ -40,4 +42,4 @@
     }
   });
 
-})(window.can, window.can.$, window.Clipboard);
+})(window.can, window.can.$);

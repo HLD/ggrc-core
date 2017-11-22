@@ -1,25 +1,62 @@
 {{!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
-<form class="modal-body attachment-modal__body">
-    <div class="attachment-modal__field">
-        <h6 class="attachment-modal__field-title">{{content.title}}</h6>
-        <div class="attachment-modal__field-value">
-          {{#if isPerson}}
-              <person-info person-obj="content.value"></person-info>
-          {{else}}
-              <read-more text="content.value"></read-more>
-          {{/if}}
+<form class="simple-modal__body">
+    <div class="simple-modal__section">
+        <div class="field__title form-field__title">
+          <label class="field__title-text">{{content.title}}</label>
         </div>
+	  <custom-attributes-field
+            {type}="content.type"
+            {value}="content.value"
+            {options}="content.options"
+            {disabled}="true"
+	  ></custom-attributes-field>
     </div>
-    <div class="attachment-modal__controls">
-      {{#comment}}
-          <assessment-add-comment instance="instance" is-empty="isEmpty" state="state" ca-ids="caIds" comment-place-holder="Enter comment"></assessment-add-comment>
-      {{/comment}}
-      {{#evidence}}
-          <assessment-attachments-list class="attachment-list" source_mapping="instance"
-                                       parent_instance="instance"></assessment-attachments-list>
-      {{/evidence}}
+      {{#if comment}}
+          <div class="simple-modal__section">
+            <div class="simple-modal__section-title">Comment</div>
+            <comment-input
+                      {(value)}="*commentValue"
+                      {disabled}="*isSaving"
+            ></comment-input>
+          </div>
+      {{/if}}
+      {{#if evidence}}
+        <div class="simple-modal__section">
+            <div class="simple-modal__section-title">Evidence file
+              <spinner class="simple-modal__section-title-icon" {toggle}="isUpdatingEvidences"></spinner>
+            </div>
+            <object-list {items}="evidences" {empty-message}="noItemsText">
+                <editable-document-object-list-item {document}="{.}">
+                    <a ($click)="removeRelatedItem(document, 'evidences')">
+                        <action-toolbar-control>
+                            <i class="fa fa-trash"></i>
+                        </action-toolbar-control>
+                    </a>
+                </editable-document-object-list-item>
+            </object-list>
+            <attach-button
+		    {assessment-type-objects}="assessmentTypeObjects"
+                    (before-create)="addItems(%event, 'evidences')"
+                    (refresh-evidences)="updateItems('evidences')"
+                    {is-attach-action-disabled}="isUpdatingEvidences"
+                    {instance}="instance"></attach-button>
+        </div>
+      {{/if}}
     </div>
 </form>
+<div class="simple-modal__footer">
+    <div class="simple-modal__toolbar">
+      {{#if comment}}
+         <comment-add-button class="simple-modal__toolbar-item"
+                             {(value)}="*commentValue"
+                             {^is-saving}="*isSaving"
+                             (comment-created)="onCommentCreated(%event)"
+                             {is-disabled}="isUpdatingEvidences"
+         >Save</comment-add-button>
+      {{/if}}
+        <button class="btn btn-small btn-white simple-modal__toolbar-item" ($click)="hide" {{#if isUpdatingEvidences}}disabled{{/if}}>Close</button>
+    </div>
+</div>

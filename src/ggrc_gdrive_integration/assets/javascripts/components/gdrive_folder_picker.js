@@ -1,7 +1,13 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
+
+import {
+  uploadFiles,
+  GDRIVE_PICKER_ERR_CANCEL,
+} from '../utils/gdrive-picker-utils.js';
+
 (function (can, $) {
   'use strict';
 
@@ -11,12 +17,12 @@
         // Since we attach_files can re-use existing file references
         // from the picker, check for that case.
         var link = {link: file.alternateLink};
-        CMS.Models.Document.findAll(link).done(function (d) {
-          if (d.length) {
-            new CMS.Models.ObjectDocument({
+        CMS.Models.Document.findAll(link).done(function (docResp) {
+          if (docResp.length) {
+            new CMS.Models.Relationship({
               context: object.context || {id: null},
-              documentable: object,
-              document: d[0]
+              source: object,
+              destination: docResp[0]
             }).save();
           } else {
             if (type === 'folders') {
@@ -34,10 +40,10 @@
               link: file.alternateLink
             }).save().then(function (doc) {
               return $.when([
-                new CMS.Models.ObjectDocument({
+                new CMS.Models.Relationship({
                   context: object.context || {id: null},
-                  documentable: object,
-                  document: doc
+                  source: object,
+                  destination: doc
                 }).save()
               ]);
             });
@@ -50,15 +56,33 @@
   GGRC.Components('gDriveFolderPicker', {
     tag: 'ggrc-gdrive-folder-picker',
     template: can.view(GGRC.mustache_path + '/gdrive/gdrive_folder.mustache'),
-    scope: {
+    viewModel: {
+      define: {
+        readonly: {
+          type: 'boolean',
+          value: false
+        },
+        hasRevisionFolder: {
+          type: 'boolean',
+          get: function () {
+            return this.attr('readonly') &&
+              this.instance.folders &&
+              this.instance.folders.length;
+          }
+        },
+        hideLabel: {
+          type: 'boolean',
+          value: false
+        }
+      },
       _folder_change_pending: false,
       no_detach: '@',
       deferred: '@',
       tabindex: '@',
       placeholder: '@',
-      readonly: '@',
       folder_list: [],
       instance: null,
+      isRevisionFolderLoaded: false,
       /**
        * Helper method for unlinking all object folders currently linked to the
        * given instance.
@@ -93,76 +117,123 @@
         });
 
         return deleteDeferred;
+      },
+      _updateCurrentFolder: function () {
+        var item = this.instance.get_binding('folders').list[0];
+        if (!item && this.instance.get_binding('extended_folders')) {
+          item = this.instance.get_binding('extended_folders').list[0];
+        }
+
+        this.attr('current_folder', item ? item.instance : null);
+      },
+      _setRevisionFolder: function () {
+        var that = this;
+        var folderId;
+        var gdriveFolder;
+
+        if (!this.attr('hasRevisionFolder')) {
+          this.attr('isRevisionFolderLoaded', true);
+          return;
+        }
+
+        folderId = this.instance.folders[0].id;
+        if (folderId) {
+          this.attr('isRevisionFolderLoaded', false);
+          this.attr('_folder_change_pending', true);
+
+          gdriveFolder = new CMS.Models.GDriveFolder({
+            id: folderId,
+            href: '/drive/v2/files/' + folderId
+          });
+
+          gdriveFolder.refresh().then(function () {
+            that.attr('current_folder', gdriveFolder);
+            that.attr('_folder_change_pending', false);
+            that.attr('isRevisionFolderLoaded', true);
+          });
+        }
       }
     },
     events: {
       setCurrent: function (unsetPending) {
         return function (folders) {
-          var folder = folders[0] ? folders[0].instance : null;
-          if (unsetPending) {
-            this.scope.attr('_folder_change_pending', false);
+          var folder;
+          if (this.viewModel.attr('hasRevisionFolder')) {
+            return;
           }
-          this.scope.attr('current_folder', folder);
-          this.scope.attr('folder_list').replace(folders);
+
+          folder = folders[0] ? folders[0].instance : null;
+          if (unsetPending) {
+            this.viewModel.attr('_folder_change_pending', false);
+          }
+          this.viewModel.attr('current_folder', folder);
+          this.viewModel.attr('folder_list').replace(folders);
         }.bind(this);
       },
       setCurrentFail: function (error) {
-        this.scope.attr('_folder_change_pending', false);
-        this.scope.attr('folder_error', error);
+        this.viewModel.attr('_folder_change_pending', false);
+        this.viewModel.attr('folder_error', error);
       },
       unsetCurrent: function () {
-        this.scope.attr('_folder_change_pending', false);
-        this.scope.attr('folder_error', null);
-        this.scope.attr('current_folder', null);
+        this.viewModel.attr('_folder_change_pending', false);
+        this.viewModel.attr('folder_error', null);
+        this.viewModel.attr('current_folder', null);
       },
       setExtendedFolder: function () {
         // Try to load extended folders if main folder was not found
-        if (!this.scope.instance.get_binding('extended_folders') ||
-             this.scope.current_folder ||
-             this.scope.folder_error) {
-          return this.scope.attr('_folder_change_pending', false);
+        if (!this.viewModel.instance.get_binding('extended_folders') ||
+             this.viewModel.current_folder ||
+             this.viewModel.folder_error) {
+          return this.viewModel.attr('_folder_change_pending', false);
         }
-        this.scope.instance.get_binding('extended_folders')
+        this.viewModel.instance.get_binding('extended_folders')
           .refresh_instances()
           .done(this.setCurrent(true))
           .fail(this.setCurrentFail.bind(this));
       },
       inserted: function () {
-        var foldersBinding = this.scope.instance.get_binding('folders');
+        var foldersBinding;
+        if (this.viewModel.attr('hasRevisionFolder')) {
+          this.viewModel._setRevisionFolder();
+        } else {
+          foldersBinding = this.viewModel.instance.get_binding('folders');
 
-        this.element.removeAttr('tabindex');
-        this.scope.attr('_folder_change_pending', true);
+          this.element.removeAttr('tabindex');
+          this.viewModel.attr('_folder_change_pending', true);
 
-        foldersBinding.refresh_instances()
-          .then(this.setCurrent(), this.setCurrentFail.bind(this))
-          .then(this.setExtendedFolder.bind(this));
+          foldersBinding.refresh_instances()
+            .then(this.setCurrent(), this.setCurrentFail.bind(this))
+            .then(this.setExtendedFolder.bind(this));
+        }
       },
-      '{scope.instance} change': function (inst, ev, attr) {
+      '{viewModel.instance} change': function (inst, ev, attr) {
         // Error recovery from previous refresh_instances error when we couldn't set up the binding.
-        if (!this.scope.folder_error) {
+        if (!this.viewModel.folder_error) {
           return;
         }
-        this.scope.instance.get_binding('folders')
+        this.viewModel.instance.get_binding('folders')
           .refresh_instances()
           .then(this.setCurrent(true), this.setCurrentFail.bind(this))
           .then(this.setExtendedFolder.bind(this));
       },
-      '{scope.folder_list} change': function () {
+      '{viewModel.folder_list} change': function () {
         var pjlength;
-        var item = this.scope.instance.get_binding('folders').list[0];
-        if (!item && this.scope.instance.get_binding('extended_folders')) {
-          item = this.scope.instance.get_binding('extended_folders').list[0];
-        }
 
-        this.scope.attr('current_folder', item ? item.instance : null);
-        if (this.scope.deferred && this.scope.instance._pending_joins) {
-          pjlength = this.scope.instance._pending_joins.length;
-          can.each(this.scope.instance._pending_joins.slice(0).reverse(), function (pj, i) {
-            if (pj.through === 'folders') {
-              this.scope.instance._pending_joins.splice(pjlength - i - 1, 1);
-            }
-          }, this);
+        this.viewModel._updateCurrentFolder();
+        if (this.viewModel.deferred && this.viewModel.instance._pending_joins) {
+          pjlength = this.viewModel.instance._pending_joins.length;
+          can.each(this.viewModel.instance._pending_joins.slice(0).reverse(),
+            function (pj, i) {
+              if (pj.through === 'folders') {
+                this.viewModel.instance._pending_joins
+                  .splice(pjlength - i - 1, 1);
+              }
+            }, this);
         }
+      },
+
+      '{viewModel.instance} object_folders': function () {
+        this.viewModel._updateCurrentFolder();
       },
 
       /**
@@ -174,36 +245,41 @@
        * @param {Object} ev - The event object.
        */
       'a[data-toggle=gdrive-remover] click': function (el, ev) {
-        var scope = this.scope,
-          dfd;
+        var viewModel = this.viewModel;
+        var dfd;
 
-        if (scope.deferred) {
-          if (scope.current_folder) {
-            scope.instance.mark_for_deletion('folders', scope.current_folder);
-          } else if (scope.folder_error && !scope.instance.object_folders) {
+        if (viewModel.deferred) {
+          if (viewModel.current_folder) {
+            viewModel.instance
+              .mark_for_deletion('folders', viewModel.current_folder);
+          } else if (viewModel.folder_error &&
+            !viewModel.instance.object_folders) {
             // If object_folders are not defined for this instance the error
             // is from extended_folders, we just need to clear folder_error
             // in this case.
-            scope.attr('folder_error', null);
+            viewModel.attr('folder_error', null);
           } else {
-            can.each(scope.instance.object_folders.reify(), function (object_folder) {
-              object_folder.refresh().then(function (of) {
-                scope.instance.mark_for_deletion('object_folders', of);
+            can.each(viewModel.instance.object_folders.reify(),
+              function (objectFolder) {
+                objectFolder.refresh().then(function (of) {
+                  viewModel.instance.mark_for_deletion('object_folders', of);
+                });
               });
-            });
           }
           dfd = $.when();
         } else {
-          dfd = scope._unlinkObjFolders(scope.instance);
+          dfd = viewModel._unlinkObjFolders(viewModel.instance);
         }
 
         dfd.then(function () {
-          if (scope.instance.get_binding('extended_folders')) {
+          if (viewModel.instance.get_binding('extended_folders')) {
             $.when(
-              scope.instance.get_binding('folders').refresh_instances(),
-              scope.instance.get_binding('extended_folders').refresh_instances()
+              viewModel.instance.get_binding('folders').refresh_instances(),
+              viewModel.instance.get_binding('extended_folders')
+                .refresh_instances()
             ).then(function (local_bindings, extended_bindings) {
-              var self_folders, remote_folders;
+              var self_folders;
+              var remote_folders;
               self_folders = can.map(local_bindings, function (folder_binding) {
                 return folder_binding.instance;
               });
@@ -211,91 +287,29 @@
                 return ~can.inArray(folder_binding.instance, self_folders) ? undefined : folder_binding.instance;
               });
 
-              scope.attr('current_folder', remote_folders[0] || null);
+              viewModel.attr('current_folder', remote_folders[0] || null);
             });
           } else {
-            scope.attr('current_folder', null);
+            viewModel.attr('current_folder', null);
           }
 
-          scope.attr('folder_error', null);
+          viewModel.attr('folder_error', null);
         });
       },
-
       'a[data-toggle=gdrive-picker] click': function (el, ev) {
-        var dfd = GGRC.Controllers.GAPI.authorize(['https://www.googleapis.com/auth/drive']);
-        var folder_id = el.data('folder-id');
-
-        // Create and render a Picker object for searching images.
-        function createPicker() {
-          window.oauth_dfd.done(function (token, oauth_user) {
-            var dialog;
-            var view;
-            var docsUploadView;
-            var docsView;
-            var picker = new google.picker.PickerBuilder()
-                  .setOAuthToken(gapi.auth.getToken().access_token)
-                  .setDeveloperKey(GGRC.config.GAPI_KEY)
-                  .setCallback(pickerCallback);
-
-            if (el.data('type') === 'folders') {
-              view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-                .setMimeTypes(['application/vnd.google-apps.folder'])
-                .setSelectFolderEnabled(true);
-              picker.setTitle('Select folder');
-              picker.addView(view);
-            } else {
-              docsUploadView = new google.picker.DocsUploadView()
-                .setParent(folder_id);
-              docsView = new google.picker.DocsView()
-                .setParent(folder_id);
-
-              picker.addView(docsUploadView)
-                .addView(docsView)
-                .enableFeature(google.picker.Feature.MULTISELECT_ENABLED);
-            }
-            picker = picker.build();
-            picker.setVisible(true);
-            // use undocumented fu to make the Picker be "modal"
-            // this is the "mask" displayed behind the dialog box div
-            $('div.picker-dialog-bg').css('zIndex', 4000);  // there are multiple divs of that sort
-            // and this is the dialog box modal div, which we must display on top of our modal, if any
-
-            dialog = GGRC.Utils.getPickerElement(picker);
-            if (dialog) {
-              dialog.style.zIndex = 4001; // our modals start with 2050
-            }
+        uploadFiles({
+          parentId: el.data('folder-id'),
+          pickFolder: el.data('type') === 'folders',
+        }).then((files, action) => {
+          el.trigger('picked', {
+            files,
           });
-        }
-
-        function pickerCallback(data) {
-          var files;
-          var model;
-          var PICKED = google.picker.Action.PICKED;
-          var ACTION = google.picker.Response.ACTION;
-          var DOCUMENTS = google.picker.Response.DOCUMENTS;
-          var CANCEL = google.picker.Action.CANCEL;
-
-          if (data[ACTION] === PICKED) {
-            if (el.data('type') === 'folders') {
-              model = CMS.Models.GDriveFolder;
-            } else {
-              model = CMS.Mdoels.GDriveFile;
-            }
-            files = model.models(data[DOCUMENTS]);
-            el.trigger('picked', {
-              files: files
-            });
-          } else if (data[ACTION] === CANCEL) {
+        })
+        .fail((err)=>{
+          if ( err && err.type === GDRIVE_PICKER_ERR_CANCEL ) {
             el.trigger('rejected');
           }
-        }
-
-        dfd.fail(this.unsetCurrent.bind(this))
-          .done(function () {
-            gapi.load('picker', {
-              callback: createPicker
-            });
-          });
+        });
       },
 
       /*
@@ -311,7 +325,7 @@
       '.entry-attachment picked': function (el, ev, data) {
         var dfd;
         var files = data.files || [];
-        var scope = this.scope;
+        var viewModel = this.viewModel;
 
         if (el.data('type') === 'folders' &&
             files.length &&
@@ -323,49 +337,52 @@
           return;
         }
 
-        this.scope.attr('_folder_change_pending', true);
+        this.viewModel.attr('_folder_change_pending', true);
         if (!el.data('replace')) {
           dfd = $.when();
-        } else if (scope.deferred) {
-          if (scope.current_folder) {
-            scope.instance.mark_for_deletion('folders', scope.current_folder);
-          } else if (scope.folder_error && !scope.instance.object_folders) {
+        } else if (viewModel.deferred) {
+          if (viewModel.current_folder) {
+            viewModel.instance
+              .mark_for_deletion('folders', viewModel.current_folder);
+          } else if (viewModel.folder_error &&
+            viewModel.instance.object_folders) {
             // If object_folders are not defined for this instance the error
             // is from extended_folders, we just need to clear folder_error
             // in this case.
-            scope.attr('folder_error', null);
+            viewModel.attr('folder_error', null);
           } else {
-            can.each(scope.instance.object_folders.reify(), function (object_folder) {
-              object_folder.refresh().then(function (of) {
-                scope.instance.mark_for_deletion('object_folders', of);
+            can.each(viewModel.instance.object_folders.reify(),
+              function (objectFolder) {
+                objectFolder.refresh().then(function (of) {
+                  viewModel.instance.mark_for_deletion('object_folders', of);
+                });
               });
-            });
           }
           dfd = $.when();
         } else {
-          dfd = scope._unlinkObjFolders(scope.instance);
+          dfd = viewModel._unlinkObjFolders(viewModel.instance);
         }
 
         dfd
         .always(function () {
-          this.scope.attr('_folder_change_pending', false);
+          this.viewModel.attr('_folder_change_pending', false);
         }.bind(this))
         .then(function () {
-          if (scope.deferred) {
+          if (viewModel.deferred) {
             return $.when.apply($,
               can.map(files, function (file) {
-                scope.instance.mark_for_addition('folders', file);
+                viewModel.instance.mark_for_addition('folders', file);
                 return file.refresh();
               })
             );
           }
-          return attachFiles(files, el.data('type'), scope.instance);
+          return attachFiles(files, el.data('type'), viewModel.instance);
         })
         .then(function () {
-          scope.attr('folder_error', null);
-          scope.attr('current_folder', files[0]);
-          if (scope.deferred && scope.instance._transient) {
-            scope.instance.attr('_transient.folder', files[0]);
+          viewModel.attr('folder_error', null);
+          viewModel.attr('current_folder', files[0]);
+          if (viewModel.deferred && viewModel.instance._transient) {
+            viewModel.instance.attr('_transient.folder', files[0]);
           }
         })
         .fail(this.setCurrentFail.bind(this));
@@ -373,4 +390,4 @@
       }
     }
   });
-})(this.can, this.can.$);
+})(window.can, window.can.$);

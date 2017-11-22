@@ -1,19 +1,19 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
 (function (can, $) {
-  can.Component.extend({
+  GGRC.Components('mappingTreeView', {
     tag: 'mapping-tree-view',
     template: can.view(GGRC.mustache_path +
       '/base_templates/mapping_tree_view.mustache'),
     scope: {
-      reusable: '@',
-      reuseMethod: '@',
       treeViewClass: '@',
       expandable: '@',
       sortField: '@',
+      sortOrder: '@',
+      emptyText: '@',
       parentInstance: null,
       mappedObjects: [],
       isExpandable: function () {
@@ -54,6 +54,7 @@
     },
     /**
       * Sort objects list by this.scope.sortField, if defined
+      * in order defined in this.scope.sortOrder (asc or desc)
       *
       * @param {Array} mappedObjects - the list of objects to be sorted
       *
@@ -63,8 +64,10 @@
       *                   mappedObjects.
       */
     _sortObjects: function (mappedObjects) {
-      if (this.scope.attr('sortField')) {
-        return _.sortBy(mappedObjects, this.scope.attr('sortField'));
+      var sortField = this.scope.attr('sortField');
+      var sortOrder = this.scope.attr('sortOrder');
+      if (sortField) {
+        return _.sortByOrder(mappedObjects, sortField, sortOrder);
       }
       return mappedObjects;
     },
@@ -76,7 +79,8 @@
         var binding;
 
         ev.stopPropagation();
-
+        // Refactor and show spinner instead (for all lists)
+        el.hide();
         binding = _.find(mappings, function (mapping) {
           return mapping.instance.id === instance.id &&
             mapping.instance.type === instance.type;
@@ -91,7 +95,7 @@
                 return mapping.documentable.reify();
               }
             })
-            .fail(GGRC.Errors.notifier('error'));
+            .fail(GGRC.Errors.notifierXHR('error'));
         });
       }
     }

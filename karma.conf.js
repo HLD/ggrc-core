@@ -1,7 +1,12 @@
 
 // Karma Configuration
-// Copyright (C) 2016 Google Inc.
+// Copyright (C) 2017 Google Inc.
 // Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+
+const devConfig = require('./webpack.config')();
+
+const commonsChunkPluginIndex = devConfig.plugins.findIndex(plugin => plugin.chunkNames);
+devConfig.plugins.splice(commonsChunkPluginIndex, 1);
 
 module.exports = function (config) {
   var configuration = {
@@ -15,11 +20,7 @@ module.exports = function (config) {
 
     // list of files / patterns to load in the browser
     files: [
-      'src/ggrc/assets/js_specs/spec_setup.js',
-      'src/ggrc/static/dashboard-templates.js',
-      'src/ggrc/static/dashboard.js',
-      'src/ggrc/static/dashboard-spec-helpers.js',
-      'src/**/*_spec.js'
+      'src/ggrc/assets/js_specs/specs.js',
     ],
 
     // list of files to exclude
@@ -29,7 +30,10 @@ module.exports = function (config) {
     // preprocess matching files before serving them to the browser
     // available preprocessors: https://npmjs.org/browse/keyword/karma-preprocessor
     preprocessors: {
+      "src/ggrc/assets/js_specs/specs.js": ["webpack"]
     },
+
+    webpack: devConfig,
 
     // test results reporter to use
     // possible values: 'dots', 'progress'
@@ -56,23 +60,19 @@ module.exports = function (config) {
 
     // start these browsers
     // available browser launchers: https://npmjs.org/browse/keyword/karma-launcher
-    browsers: [/* 'PhantomJS' */],
-
+    browsers: ['OurChrome'],
     customLaunchers: {
-      Chrome_travis_ci: {
+      OurChrome: {
         base: 'Chrome',
-        flags: ['--no-sandbox']
+        flags: ['--no-sandbox', '--headless', '--disable-gpu', '--remote-debugging-port=9222']
       }
     },
+    concurrency: 1,
 
     // Continuous Integration mode
     // if true, Karma captures browsers, runs the tests and exits
     singleRun: false
   };
-
-  if (process.env.TRAVIS) {
-    configuration.browsers = ['Chrome_travis_ci'];
-  }
 
   config.set(configuration);
 };

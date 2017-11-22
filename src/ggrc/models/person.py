@@ -1,24 +1,28 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 import re
+from sqlalchemy import event
 from sqlalchemy.orm import validates
+from sqlalchemy.orm.session import Session
 
+from ggrc import builder
 from ggrc import db
 from ggrc import settings
-from ggrc.models.computed_property import computed_property
+from ggrc.fulltext.mixin import Indexed
 from ggrc.models.context import HasOwnContext
 from ggrc.models.exceptions import ValidationError
 from ggrc.models.deferred import deferred
 from ggrc.models.mixins import Base, CustomAttributable
 from ggrc.models.custom_attribute_definition import CustomAttributeMapable
-from ggrc.models.reflection import PublishOnly
+from ggrc.models import reflection
 from ggrc.models.relationship import Relatable
 from ggrc.models.utils import validate_option
+from ggrc.rbac import SystemWideRoles
 
 
 class Person(CustomAttributable, CustomAttributeMapable, HasOwnContext,
-             Relatable, Base, db.Model):
+             Relatable, Base, Indexed, db.Model):
 
   __tablename__ = 'people'
 
@@ -29,8 +33,8 @@ class Person(CustomAttributable, CustomAttributeMapable, HasOwnContext,
 
   object_people = db.relationship(
       'ObjectPerson', backref='person', cascade='all, delete-orphan')
-  object_owners = db.relationship(
-      'ObjectOwner', backref='person', cascade='all, delete-orphan')
+  access_control_list = db.relationship(
+      'AccessControlList', backref='person', cascade='all, delete-orphan')
   language = db.relationship(
       'Option',
       primaryjoin='and_(foreign(Person.language_id) == Option.id, '
@@ -50,14 +54,14 @@ class Person(CustomAttributable, CustomAttributeMapable, HasOwnContext,
       'email',
       'name',
   ]
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'company',
       'email',
       'language',
       'name',
-      PublishOnly('object_people'),
-      PublishOnly('system_wide_role'),
-  ]
+      reflection.Attribute('object_people', create=False, update=False),
+      reflection.Attribute('system_wide_role', create=False, update=False),
+  )
   _sanitize_html = [
       'company',
       'name',
@@ -90,6 +94,10 @@ class Person(CustomAttributable, CustomAttributeMapable, HasOwnContext,
     # pylint: disable=no-self-use
   def is_authenticated(self):
     return self.system_wide_role != 'No Access'
+
+  @property
+  def user_name(self):
+    return self.email.split("@")[0]
 
   def is_active(self):
     # pylint: disable=no-self-use
@@ -135,10 +143,20 @@ class Person(CustomAttributable, CustomAttributeMapable, HasOwnContext,
         orm.subqueryload('object_people'),
     )
 
+  @classmethod
+  def indexed_query(cls):
+    from sqlalchemy import orm
+
+    return super(Person, cls).indexed_query().options(
+        orm.Load(cls).undefer_group(
+            "Person_complete",
+        ),
+    )
+
   def _display_name(self):
     return self.email
 
-  @computed_property
+  @builder.simple_property
   def system_wide_role(self):
     """For choosing the role string to show to the user; of all the roles in
     the system-wide context, it shows the highest ranked one (if there are
@@ -148,13 +166,13 @@ class Person(CustomAttributable, CustomAttributeMapable, HasOwnContext,
     #   depends on `Role` and `UserRole` objects
 
     if self.email in getattr(settings, "BOOTSTRAP_ADMIN_USERS", []):
-      return u"Superuser"
+      return SystemWideRoles.SUPERUSER
 
     role_hierarchy = {
-        u'Administrator': 0,
-        u'Editor': 1,
-        u'Reader': 2,
-        u'Creator': 3,
+        SystemWideRoles.ADMINISTRATOR: 0,
+        SystemWideRoles.EDITOR: 1,
+        SystemWideRoles.READER: 2,
+        SystemWideRoles.CREATOR: 3,
     }
     unique_roles = set([
         user_role.role.name
@@ -169,3 +187,16 @@ class Person(CustomAttributable, CustomAttributeMapable, HasOwnContext,
       sorted_roles = sorted(unique_roles,
                             key=lambda x: role_hierarchy.get(x, -1))
       return sorted_roles[0]
+
+
+@event.listens_for(Session, 'after_flush_postexec')
+def receive_after_flush(session, _):
+  """Make sure newly created users have a personal context set"""
+  for o in session.identity_map.values():
+    if not isinstance(o, Person):
+      continue
+    user_context = o.get_or_create_object_context(
+        context=1,
+        name='Personal Context for {0}'.format(o.id),
+        description='')
+    db.session.add(user_context)

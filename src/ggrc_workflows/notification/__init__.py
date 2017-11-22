@@ -1,7 +1,9 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
-from ggrc.services.common import Resource
+from sqlalchemy import inspect
+
+from ggrc.services import signals
 from ggrc_workflows.models import (
     Workflow,
     Cycle,
@@ -40,27 +42,35 @@ def contributed_notifications():
 
 def register_listeners():
 
-  @Resource.model_put.connect_via(Workflow)
+  @signals.Restful.model_put.connect_via(Workflow)
   def workflow_put_listener(sender, obj=None, src=None, service=None):
     handle_workflow_modify(sender, obj, src, service)
+    if not inspect(obj).attrs.status.history.has_changes():
+      return
+    new = inspect(obj).attrs.status.history.added[0]
+    old = inspect(obj).attrs.status.history.deleted[-1]
+    # first activate wf
+    if (old, new) == (obj.DRAFT, obj.ACTIVE) and obj.cycles:
+      handle_cycle_created(obj.cycles[0], False)
 
-  @Resource.model_put.connect_via(CycleTaskGroupObjectTask)
+  @signals.Restful.model_put.connect_via(CycleTaskGroupObjectTask)
   def cycle_task_group_object_task_put_listener(
           sender, obj=None, src=None, service=None):
     handle_cycle_task_group_object_task_put(obj)
 
-  @Resource.model_put.connect_via(Cycle)
+  @signals.Restful.model_put.connect_via(Cycle)
   def cycle_put_listener(sender, obj=None, src=None, service=None):
-    handle_cycle_modify(sender, obj, src, service)
+    handle_cycle_modify(obj)
 
-  @Resource.model_posted.connect_via(Cycle)
+  @signals.Restful.model_posted.connect_via(Cycle)
   def cycle_post_listener(sender, obj=None, src=None, service=None):
-    handle_cycle_created(sender, obj, src, service, True)
+    handle_cycle_created(obj, True)
 
   @Signals.status_change.connect_via(CycleTaskGroupObjectTask)
   def cycle_task_status_change_listener(
           sender, obj=None, new_status=None, old_status=None):
-    handle_cycle_task_status_change(obj, new_status, old_status)
+    handle_cycle_task_status_change(obj)
+
 
 """
 All notifications handle the following structure:
@@ -82,7 +92,8 @@ All notifications handle the following structure:
                   "workflow_owners":
                       { workflow_owner.id: workflow_owner_info, ...},
                   "start_date": MM/DD/YYYY
-                  "fuzzy_start_date": "in X days/weeks ..."
+                  "start_date_statement": "starts in X day[s]" or
+                                          "started today|X day[s] ago"
               }
               , ...
           }
@@ -95,35 +106,34 @@ All notifications handle the following structure:
                   "workflow_owners":
                       { workflow_owner.id: workflow_owner_info, ...},
                   "start_date": MM/DD/YYYY
-                  "fuzzy_start_date": "in X days/weeks ..."
+                  "start_date_statement": "starts in X day[s]" or
+                                          "started today|X day[s] ago"
               }
               , ...
           }
-
-          "cycle_started": {
+          "cycle_data": {
               cycle.id: {
-                  # manually started cycles have instant notification
-                  "manually": False
-
-                  "custom_message": ""
-                  "cycle_title": ""
-                  "cycle_url": ""
-                  "workflow_owners":
-                      { workflow_owner.id: workflow_owner_info, ...},
-
                   "my_tasks" : # list of all tasks assigned to the user
-                      { cycle_task.id: { task_info }, ...}
-
+                      { cycle_task.id: { task_info }, ...},
                   # list of all task groups assigned to the user, including
                   # tasks
                   "my_task_groups" :
                       { task_group.id:
                           { cycle_task.id: { task_info }, ... }, ...
-                      }
-
+                      },
                   "cycle_tasks" : # list of all tasks in the workflow
                       { cycle_task.id: { task_info }, ...}
-
+              }
+          }
+          "cycle_started": {
+              cycle.id: {
+                  # manually started cycles have instant notification
+                  "manually": False,
+                  "custom_message": "",
+                  "cycle_title": "",
+                  "cycle_url": "",
+                  "workflow_owners":
+                      { workflow_owner.id: workflow_owner_info, ...}
               }
               , ...
           }
@@ -152,7 +162,7 @@ Task and cycle_task have the following structure:
       "title": title,
       "object_titles": list of object titles for all related objects
       "end_date": end date in MM/DD/YYYY format
-      "fuzzy_due_in": "today" or "in 1 day"... "in 5 days", "in 1 week" etc.,
+      "due_date_statement": "due today|in X day[s]|X day[s] ago"
       "cycle_task_url" ""
   }
 

@@ -1,0 +1,158 @@
+/*
+ * Copyright (C) 2017 Google Inc.
+ * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+ */
+
+@import "controls-toolbar";
+
+.info-pane {
+
+  &__body {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    position: relative;
+  }
+
+  &__section {
+    display: block;
+    margin: 0 16px 16px 0;
+  }
+
+  &__section-content {
+    display: block;
+    margin: 0 0 16px 0;
+  }
+
+  &__section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: bold;
+    line-height: 28px;
+    margin: 0;
+    padding: 0;
+    position: relative;
+
+    &--underlined {
+      border-bottom: 1px solid $lightGray;
+    }
+  }
+
+  &__section-title-icon {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    left: -28px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  &__section-title-text {
+
+  }
+
+  &__main-content {
+    flex: 1;
+    padding-bottom: 28px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__main-content-with-sidebar {
+    margin-right: 30%;
+    padding-right: 16px;
+  }
+
+  &__sidebar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    padding-left: 16px;
+    padding-bottom: 20px;
+    width: 30%;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid $border-color;
+
+    &:after {
+      content: '';
+      width: 100%;
+      bottom: 0;
+      left: 0;
+      height: 42px;
+      display: block;
+      position: absolute;
+      background: linear-gradient(to bottom, transparent, white 70%);
+    }
+  }
+  .inline__header {
+    width: 100%;
+  }
+
+  .pane-header {
+    display: flex;
+    height: 70px;
+    justify-content: space-between;
+    border-bottom: 1px solid #eee;
+
+    .pane-header__container {
+      width: 100%;
+    }
+
+    .pane-header__title {
+      padding-right: 24px;
+      max-width: calc(100% - 520px);
+      flex: 1;
+
+      .pane-header__title-name {
+        max-width: calc(100% - 160px);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        margin-right: 8px;
+      }
+
+      .state-value {
+        box-sizing: border-box;
+        white-space: nowrap;
+        margin-right: 8px;
+        line-height: 18px;
+        display: flex;
+        align-items: center;
+      }
+
+      .verified-icon {
+        display: flex;
+        align-items: center;
+      }
+    }
+
+    .pane-header__toolbar {
+      display: flex;
+      flex-direction: row-reverse;
+
+      .form-status {
+        line-height: 28px;
+
+        .loading-status {
+          margin-right: 5px;
+        }
+      }
+
+      .pane-header__toolbar-item {
+        margin-top: 30px;
+
+        /* override "sticky-info-panel" margin */
+        .details-wrap {
+          margin-top: 0px !important;
+        }
+      }
+    }
+  }
+}
+
+.assessment-comments {
+  // Please do not remove this class. It's used in Selenium tests.
+}

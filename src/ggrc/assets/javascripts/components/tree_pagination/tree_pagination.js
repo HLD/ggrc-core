@@ -1,5 +1,5 @@
 /*!
- Copyright (C) 2016 Google Inc.
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -27,11 +27,11 @@
        *  disabled: {Boolean} - true if frontend doesn't finish request to the server otherwise false
        * }
        */
-      if (!this.scope.attr('paging')) {
+      if (!this.viewModel.attr('paging')) {
         throw new Error('Paging object didn\'t init');
       }
     },
-    scope: {
+    viewModel: {
       /**
        * Gets value from input and after validation set it to paging.current
        * @param {Object} object - paging object
@@ -42,7 +42,7 @@
         var _value;
         var _page;
         event.stopPropagation();
-        if (!this.paging.attr('disabled')) {
+        if (!this.paging.attr('disabled') && input.val() !== '') {
           _value = parseInt(input.val(), 10);
           _page = Math.min(Math.max(_value, 1) || 1, this.paging.count);
 
@@ -51,45 +51,34 @@
         input.val('');
         input.blur();
       },
-      changePageSize: function (size) {
-        if (!this.paging.attr('disabled')) {
-          this.paging.attr('pageSize', size);
-          this.paging.attr('current', 1);
-        }
-      },
       setLastPage: function () {
-        if (this.paging.current < this.paging.count &&
-          !this.paging.attr('disabled')) {
-          this.paging.attr('current', this.paging.count);
-        }
+        this.paging.attr('current', this.paging.count);
       },
       setFirstPage: function () {
-        if (this.paging.current > 1 && !this.paging.attr('disabled')) {
-          this.paging.attr('current', 1);
-        }
+        this.paging.attr('current', 1);
       },
       setPrevPage: function () {
-        if (this.paging.current > 1 && !this.paging.attr('disabled')) {
-          this.paging.attr('current', this.paging.current - 1);
-        }
+        this.paging.attr('current', this.paging.current - 1);
       },
       setNextPage: function () {
-        if (this.paging.current < this.paging.count &&
-          !this.paging.attr('disabled')) {
-          this.paging.attr('current', this.paging.current + 1);
-        }
-      }
-    },
-    helpers: {
-      /**
-       * @param {Number|String} current - current page number
-       * @param {Number|String} count - total amount of pages
-       * @return {string} pagination placeholder
-       */
-      paginationPlaceholder: function (current, count) {
-        var _radix = 10;
-        var _current = parseInt(Mustache.resolve(current), _radix);
-        var _count = parseInt(Mustache.resolve(count), _radix);
+        this.paging.attr('current', this.paging.current + 1);
+      },
+      getPaginationInfo: function () {
+        var _current = this.attr('paging.current');
+        var _size = this.attr('paging.pageSize');
+        var _total = this.attr('paging.total');
+        var _first;
+        var _last;
+
+        _first = (_current - 1) * _size + 1;
+        _last = _current * _size < _total ? _current * _size : _total;
+
+        return _last ? _first + '-' + _last + ' of ' + _total :
+          'No records';
+      },
+      getPaginationPlaceholder: function () {
+        var _current = this.attr('paging.current');
+        var _count = this.attr('paging.count');
 
         if (_count && _count >= _current) {
           return 'Page ' + _current + ' of ' + _count;
@@ -98,26 +87,6 @@
         }
 
         return 'Wrong value';
-      },
-      /**
-       * @param {Number|String} current - current page number
-       * @param {Number|String} size - amount elements on the page
-       * @param {Number|String} total - total amount of elements
-       * @return {string} - pagination info
-       */
-      paginationInfo: function (current, size, total) {
-        var _radix = 10;
-        var _first;
-        var _last;
-        var _current = parseInt(Mustache.resolve(current), _radix);
-        var _size = parseInt(Mustache.resolve(size), _radix);
-        var _total = parseInt(Mustache.resolve(total), _radix);
-
-        _first = (_current - 1) * _size + 1;
-        _last = _current * _size < _total ? _current * _size : _total;
-
-        return _last ? _first + '-' + _last + ' of ' + _total + ' items' :
-          'No records';
       }
     }
   });

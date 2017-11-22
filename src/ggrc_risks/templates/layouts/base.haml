@@ -1,4 +1,4 @@
--# Copyright (C) 2016 Google Inc.
+-# Copyright (C) 2017 Google Inc.
 -# Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 -#
 !!! 5
@@ -23,6 +23,10 @@
       -include "scripts/tracker-prefix.js"
       window.st=Date.now();
       -block extra_javascript
+
+    -if config.get("DASHBOARD_INTEGRATION")
+      :javascript
+        GGRC.DASHBOARD_INTEGRATION='{{config.get("DASHBOARD_INTEGRATION") | safe}}';
 
     -assets "dashboard-js"
       %script{ type:'text/javascript', src:"={ASSET_URL|with_static_subdomain}" }
@@ -70,10 +74,7 @@
         m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
         })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
 
-        ga('create', '{{config.get("GOOGLE_ANALYTICS_ID")}}', {
-          cookieDomain: '{{config.get("GOOGLE_ANALYTICS_DOMAIN")}}',
-          siteSpeedSampleRate: 100,
-        });
+        ga('create', '{{config.get("GOOGLE_ANALYTICS_ID")}}', 'auto');
         //  Presence of appName/appVersion seems to prevent 'Real-Time' metrics
         //  https://code.google.com/p/analytics-issues/issues/detail?id=366
         //ga('set', 'appVersion', '{{config.get("VERSION")}}');
@@ -81,6 +82,9 @@
 
         GGRC.Tracker.init(ga);
 
+    -if config.get("GGRC_Q_INTEGRATION_URL")
+      :javascript
+        GGRC.GGRC_Q_INTEGRATION_URL='{{config.get("GGRC_Q_INTEGRATION_URL")}}';
 
     -#%link{ 'href': "http://fonts.googleapis.com/css?family=PT+Sans", :rel => "stylesheet", :type => "text/css" }
 

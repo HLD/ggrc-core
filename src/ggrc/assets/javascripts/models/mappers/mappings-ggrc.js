@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -19,7 +19,9 @@
 
     // Governance
     Control: {
-      _mixins: ['related_object', 'personable', 'ownable'],
+      _mixins: [
+        'related_object', 'personable', 'assignable'
+      ],
       related_business_objects: Multi([
         'related_data_assets', 'related_facilities', 'related_markets',
         'related_org_groups', 'related_vendors', 'related_processes',
@@ -37,7 +39,7 @@
       ])
     },
     Objective: {
-      _mixins: ['related_object', 'personable', 'ownable'],
+      _mixins: ['related_object', 'personable'],
       related_and_able_objects: Multi([
         'controls', 'objectives', 'related_objects', 'people',
         'sections', 'clauses'
@@ -48,10 +50,10 @@
       ])
     },
     Section: {
-      _mixins: ['related_object', 'personable', 'ownable']
+      _mixins: ['related_object', 'personable']
     },
     Clause: {
-      _mixins: ['related_object', 'personable', 'ownable']
+      _mixins: ['related_object', 'personable']
     },
     personable: {
       _canonical: {
@@ -60,17 +62,11 @@
       people: Proxy(
         'Person', 'person', 'ObjectPerson', 'personable', 'object_people')
     },
-    ownable: {
-      owners: Proxy(
-        'Person', 'person', 'ObjectOwner', 'ownable', 'object_owners')
-    },
     documentable: {
       _canonical: {
         documents: 'Document'
       },
-      documents: Proxy(
-        'Document', 'document', 'ObjectDocument', 'documentable',
-        'object_documents')
+      documents: TypeFilter('related_objects', 'Document')
     },
     assignable: {
       urls: TypeFilter('related_objects', 'Document'),
@@ -92,7 +88,7 @@
           'Product', 'Project', 'System', 'Regulation', 'Policy', 'Contract',
           'Standard', 'Program', 'Issue', 'Control', 'Section', 'Clause',
           'Objective', 'Audit', 'Assessment', 'AssessmentTemplate',
-          'AccessGroup', 'Request', 'Document'
+          'AccessGroup', 'Risk', 'Threat'
         ]
       },
       related_objects_as_source: Proxy(
@@ -118,7 +114,8 @@
       related_audits: TypeFilter('related_objects', 'Audit'),
       related_controls: TypeFilter('related_objects', 'Control'),
       related_assessments: TypeFilter('related_objects', 'Assessment'),
-      related_requests: TypeFilter('related_objects', 'Request'),
+      related_risks: TypeFilter('related_objects', 'Risk'),
+      related_threats: TypeFilter('related_objects', 'Threat'),
       regulations: TypeFilter('related_objects', 'Regulation'),
       contracts: TypeFilter('related_objects', 'Contract'),
       policies: TypeFilter('related_objects', 'Policy'),
@@ -127,7 +124,9 @@
       controls: TypeFilter('related_objects', 'Control'),
       sections: TypeFilter('related_objects', 'Section'),
       clauses: TypeFilter('related_objects', 'Clause'),
-      objectives: TypeFilter('related_objects', 'Objective')
+      objectives: TypeFilter('related_objects', 'Objective'),
+      risks: TypeFilter('related_objects', 'Risk'),
+      threats: TypeFilter('related_objects', 'Threat')
     },
     // Program
     Program: {
@@ -165,16 +164,13 @@
             });
         }),
       program_owners: Cross('owner_authorizations', 'person'),
-      owners_via_object_owners: Proxy(
-        'Person', 'person', 'ObjectOwner', 'ownable', 'object_owners'),
-      owners: Multi(['program_owners', 'owners_via_object_owners']),
       orphaned_objects: Multi([
         'related_objects', 'people'
       ])
     },
     directive_object: {
       _mixins: [
-        'related_object', 'personable', 'ownable'
+        'related_object', 'personable'
       ],
       orphaned_objects: Multi([
         'people', 'controls', 'objectives', 'related_objects'
@@ -198,8 +194,7 @@
     // Business objects
     business_object: {
       _mixins: [
-        'related_object', 'personable',
-        'ownable'
+        'related_object', 'personable'
       ],
       orphaned_objects: Multi([
         'related_objects', 'people', 'controls', 'objectives', 'sections',
@@ -242,9 +237,7 @@
           'Program', 'Regulation', 'Contract', 'Policy', 'Standard',
           'AccessGroup', 'Objective', 'Control', 'Section', 'Clause',
           'DataAsset', 'Facility', 'Market', 'OrgGroup', 'Vendor', 'Process',
-          'Product', 'Project', 'System', 'Issue',
-          'Request'
-        ],
+          'Product', 'Project', 'System', 'Issue', 'Risk', 'Threat'],
         authorizations: 'UserRole'
       },
       owned_programs: Indirect('Program', 'contact'),
@@ -266,6 +259,8 @@
       owned_products: Indirect('Product', 'contact'),
       owned_projects: Indirect('Project', 'contact'),
       owned_systems: Indirect('System', 'contact'),
+      owned_risks: Indirect('Risk', 'contact'),
+      owned_threats: Indirect('Threat', 'contact'),
       related_objects: Proxy(
         null, 'personable', 'ObjectPerson', 'person', 'object_people'),
       related_programs: TypeFilter('related_objects', 'Program'),
@@ -288,6 +283,8 @@
       related_projects: TypeFilter('related_objects', 'Project'),
       related_systems: TypeFilter('related_objects', 'System'),
       related_issues: TypeFilter('related_objects', 'Issue'),
+      related_risks: TypeFilter('related_objects', 'Risk'),
+      related_threats: TypeFilter('related_objects', 'Threat'),
       authorizations: Direct('UserRole', 'person', 'user_roles'),
       programs_via_authorizations:
         Cross('authorizations', 'program_via_context'),
@@ -333,8 +330,8 @@
         });
       }, 'Program,Regulation,Contract,Policy,Standard,Section,Clause,' +
         'Objective,Control,System,Process,DataAsset,AccessGroup,Product,' +
-        'Project,Facility,Market,OrgGroup,Vendor,Audit,Assessment,Request,' +
-        'Issue'),
+        'Project,Facility,Market,OrgGroup,Vendor,' +
+        'Audit,Assessment,Issue,Risk,Threat'),
       extended_related_programs_via_search:
         TypeFilter('related_objects_via_search', 'Program'),
       extended_related_regulations_via_search:
@@ -379,19 +376,10 @@
         TypeFilter('related_objects_via_search', 'Issue'),
       extended_related_assessment_via_search:
         TypeFilter('related_objects_via_search', 'Assessment'),
-      extended_related_request_via_search:
-        TypeFilter('related_objects_via_search', 'Request'),
-      open_audit_requests: CustomFilter('extended_related_request_via_search',
-        function (result) {
-          return result.instance.status !== 'Accepted';
-        }),
-      all_audit_requests: Search(function (binding) {
-        return CMS.Models.Request.findAll({});
-      }),
-      all_open_audit_requests: CustomFilter('all_audit_requests',
-        function (result) {
-          return result.instance.status !== 'Accepted';
-        })
+      extended_related_risks_via_search:
+        TypeFilter('related_objects_via_search', 'Risk'),
+      extended_related_threats_via_search:
+        TypeFilter('related_objects_via_search', 'Threat')
     },
     Context: {
       _canonical: {
@@ -412,7 +400,6 @@
     },
     Audit: {
       _canonical: {
-        requests: 'Request',
         _program: 'Program',
         context: 'Context'
 
@@ -420,23 +407,12 @@
       _mixins: [
         'related_object'
       ],
-      requests: Direct('Request', 'audit', 'requests'),
-      active_requests: CustomFilter('requests', function (result) {
-        return result.instance.status !== 'Accepted';
-      }),
-      history: CustomFilter('requests', function (result) {
-        return result.instance.status === 'Accepted';
-      }),
       _program: Direct('Program', 'audits', 'program'),
       program_controls: Cross('_program', 'controls'),
-      program_requests: Cross('_program', 'related_requests'),
       program_issues: Cross('_program', 'related_issues'),
       program_assessments: Cross('_program', 'related_assessments'),
       objects:
         Proxy(null, 'auditable', 'AuditObject', 'audit', 'audit_objects'),
-      responses_via_requests: Cross('requests', 'related_objects'),
-      related_objects_via_requests:
-        Multi(['requests', 'responses_via_requests']),
       context: Direct('Context', 'related_object', 'context'),
       authorizations: Cross('context', 'user_roles'),
       authorized_program_people: Cross('_program', 'authorized_people'),
@@ -452,63 +428,12 @@
           });
       }),
       auditors: Cross('auditor_authorizations', 'person'),
-      related_owned_objects:
-        CustomFilter('related_objects_via_requests', function (result) {
-          var person = GGRC.page_instance() instanceof CMS.Models.Person &&
-            GGRC.page_instance();
-          var instance = result.instance;
-          return !person ||
-            (instance.attr('contact') && instance.contact.id === person.id) ||
-            (instance.attr('assignee') && instance.assignee.id === person.id) ||
-            (instance.attr('requestor') && instance.requestor.id === person.id);
-        }),
-      related_owned_requests: TypeFilter('related_owned_objects', 'Request'),
-      related_mapped_objects: CustomFilter('related_objects_via_requests',
-        function (result) {
-          var pageInstance = GGRC.page_instance();
-          var instance = result.instance;
-          var res;
-          var isMapped = function (responses) {
-            var i;
-            var j;
-            var response;
-            var relationships;
-            var relationship;
-
-            for (i = 0, response = responses[i]; ;i++) {
-              //  FIXME: This avoids script errors due to stubs, but causes
-              //    incorrect results.  `CustomFilter.filter_fn` should be
-              //    refactored to return a deferred, and then this function
-              //    should be cleaned up.
-              if (!('related_sources' in response)) continue;
-              relationships = new can.Observe.List()
-                .concat(response.related_sources.reify(),
-                  response.related_destinations.reify());
-              for (j = 0, relationship = relationships[j]; ; j++) {
-                if (relationship.source && relationship.source.reify &&
-                  relationship.source.reify() === pageInstance ||
-                  relationship.destination &&
-                  relationship.destination.reify() === pageInstance) {
-                  return true;
-                }
-              }
-            }
-          };
-
-          if (instance instanceof CMS.Models.Request && instance.responses) {
-            res = isMapped(instance.responses.reify());
-          } else {
-            res = false;
-          }
-          return res;
-        }),
-      extended_related_objects: Cross('requests', 'extended_related_objects'),
       related_assessment_templates: TypeFilter(
         'related_objects', 'AssessmentTemplate')
     },
     Assessment: {
       _mixins: [
-        'related_object', 'personable', 'ownable', 'documentable', 'assignable'
+        'related_object', 'personable', 'documentable', 'assignable'
       ],
       audits: TypeFilter('related_objects', 'Audit'),
       related_controls: TypeFilter('related_objects', 'Control'),
@@ -526,53 +451,12 @@
     },
     Issue: {
       _mixins: [
-        'related_object', 'personable', 'ownable'
-      ]
-    },
-    Request: {
-      _mixins: ['related_object', 'personable', 'ownable', 'business_object',
-        'documentable', 'assignable'],
-      business_objects: Multi(['related_objects', 'controls', 'documents',
-        'people', 'sections', 'clauses']),
-      audits: Direct('Audit', 'requests', 'audit'),
-      related_controls: TypeFilter('related_objects', 'Control'),
-      related_regulations:
-        TypeFilter('related_objects', 'Regulation'),
-      related_assignees:
-        AttrFilter('related_objects', 'AssigneeType', 'Assignee', 'Person'),
-      related_requesters:
-        AttrFilter('related_objects', 'AssigneeType', 'Requester', 'Person'),
-      related_verifiers:
-        AttrFilter('related_objects', 'AssigneeType', 'Verifier', 'Person'),
-      people: AttrFilter('related_objects', 'AssigneeType', null, 'Person'),
-      related_objects_via_search: Search(function (binding) {
-        var types = [
-          'Program', 'Regulation', 'Contract', 'Policy', 'Standard',
-          'Section', 'Clause', 'Objective', 'Control', 'AccessGroup',
-          'System', 'Process', 'DataAsset', 'Product', 'Project', 'Facility',
-          'Market', 'OrgGroup', 'Vendor', 'Audit', 'Issue', 'Assessment',
-          'Request'
-        ];
-
-        // checkfor window.location
-        if (/^\/objectBrowser\/?$/.test(window.location.pathname)) {
-          return GGRC.Models.Search.search_for_types('', types, {})
-              .pipe(function (mappings) {
-                return mappings.entries;
-              });
-        }
-        return GGRC.Models.Search.search_for_types(
-            '', types, {
-              contact_id: binding.instance.id
-            }).pipe(function (mappings) {
-              return mappings.entries;
-            });
-      }, 'Program,Regulation,Contract,Policy,Standard,Section,Clause,' +
-        'Objective,Control,System,Process,DataAsset,AccessGroup,Product,' +
-        'Project,Facility,Market,OrgGroup,Vendor,Audit,Assessment,Request')
+        'related_object', 'personable', 'documentable', 'assignable'
+      ],
+      audits: TypeFilter('related_objects', 'Audit')
     },
     Comment: {
-      _mixins: ['related_object', 'documentable', 'ownable'],
+      _mixins: ['related_object', 'documentable'],
       urls: TypeFilter('related_objects', 'Document'),
       documents_and_urls: Multi(['documents', 'urls'])
     },
@@ -603,6 +487,20 @@
           definition_id: null
         });
       }, 'CustomAttributeDefinition')
+    },
+    // used by the Custom Roles admin panel tab
+    Roleable: {
+      access_control_roles: Search(function (binding) {
+          return CMS.Models.AccessControlRole.findAll({
+            object_type: binding.instance.model_singular
+          });
+      }, 'AccessControlRole')
+    },
+    Risk: {
+      _mixins: ['directive_object']
+    },
+    Threat: {
+      _mixins: ['directive_object']
     }
   });
 })(window.GGRC, window.can);

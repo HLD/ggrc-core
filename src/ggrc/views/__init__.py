@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """ggrc.views
@@ -7,11 +7,14 @@ Handle non-RESTful views, e.g. routes which return HTML rather than JSON
 
 import collections
 import json
+import logging
 
+import sqlalchemy
 from flask import flash
 from flask import g
 from flask import render_template
 from flask import url_for
+from flask import request
 from werkzeug.exceptions import Forbidden
 
 from ggrc import models
@@ -22,11 +25,10 @@ from ggrc.builder.json import publish
 from ggrc.builder.json import publish_representation
 from ggrc.converters import get_importables, get_exportables
 from ggrc.extensions import get_extension_modules
-from ggrc.fulltext import get_indexer
-from ggrc.fulltext.recordbuilder import fts_record_for
-from ggrc.fulltext.recordbuilder import model_is_indexed
+from ggrc.fulltext import get_indexer, mixin
 from ggrc.login import get_current_user
 from ggrc.login import login_required
+from ggrc.login import admin_required
 from ggrc.models import all_models
 from ggrc.models.background_task import create_task
 from ggrc.models.background_task import make_task_response
@@ -35,60 +37,93 @@ from ggrc.models.reflection import AttributeInfo
 from ggrc.rbac import permissions
 from ggrc.services.common import as_json
 from ggrc.services.common import inclusion_filter
-from ggrc.services import query as services_query
+from ggrc.query import views as query_views
+from ggrc.snapshotter import rules
+from ggrc.snapshotter.indexer import reindex as reindex_snapshots
 from ggrc.views import converters
 from ggrc.views import cron
 from ggrc.views import filters
-from ggrc.views import mockups
 from ggrc.views import notifications
-from ggrc.views.common import RedirectedPolymorphView
 from ggrc.views.registry import object_view
 from ggrc.utils import benchmark
+from ggrc.utils import generate_query_chunks
+from ggrc.utils import revisions
+
+logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
 # Needs to be secured as we are removing @login_required
+@app.route("/_background_tasks/refresh_revisions", methods=["POST"])
+@queued_task
+def refresh_revisions(_):
+  """Web hook to update revision content."""
+  revisions.do_refresh_revisions()
+  return app.make_response(("success", 200, [("Content-Type", "text/html")]))
+
 
 @app.route("/_background_tasks/reindex", methods=["POST"])
 @queued_task
 def reindex(_):
-  """
-  Web hook to update the full text search index
-  """
-
+  """Web hook to update the full text search index."""
   do_reindex()
+  return app.make_response(("success", 200, [("Content-Type", "text/html")]))
 
-  return app.make_response((
-      'success', 200, [('Content-Type', 'text/html')]))
+
+@app.route("/_background_tasks/compute_attributes", methods=["POST"])
+@queued_task
+def compute_attributes(args):
+  """Web hook to update the full text search index."""
+  with benchmark("Run compute_attributes background task"):
+    from ggrc.data_platform import computed_attributes
+    if str(args.parameters["revision_ids"]) == "all_latest":
+      revision_ids = "all_latest"
+    else:
+      revision_ids = [id_ for id_ in args.parameters["revision_ids"]]
+    computed_attributes.compute_attributes(revision_ids)
+    return app.make_response(("success", 200, [("Content-Type", "text/html")]))
+
+
+def start_compute_attributes(revision_ids):
+  """Start a background task for computed attributes."""
+  task = create_task(
+      name="compute_attributes",
+      url=url_for(compute_attributes.__name__),
+      parameters={"revision_ids": revision_ids},
+      method=u"POST",
+      queued_callback=compute_attributes
+  )
+  task.start()
 
 
 def do_reindex():
-  """
-  update the full text search index
-  """
+  """Update the full text search index."""
 
   indexer = get_indexer()
-  indexer.delete_all_records(False)
-
-  # Remove model base classes and non searchable objects
-  excluded_models = {
-      all_models.Directive,
-      all_models.Option,
-      all_models.SystemOrProcess
+  indexed_models = {
+      m.__name__: m for m in all_models.all_models
+      if issubclass(m, mixin.Indexed) and m.REQUIRED_GLOBAL_REINDEX
   }
-  indexed_models = {model for model in all_models.all_models
-                    if model_is_indexed(model)}
+  people_query = db.session.query(all_models.Person.id,
+                                  all_models.Person.name,
+                                  all_models.Person.email)
+  indexer.cache["people_map"] = {p.id: (p.name, p.email) for p in people_query}
+  indexer.cache["ac_role_map"] = dict(db.session.query(
+      all_models.AccessControlRole.id,
+      all_models.AccessControlRole.name,
+  ))
+  for model_name in sorted(indexed_models.keys()):
+    logger.info("Updating index for: %s", model_name)
+    with benchmark("Create records for %s" % model_name):
+      model = indexed_models[model_name]
+      for query_chunk in generate_query_chunks(db.session.query(model.id)):
+        model.bulk_record_update_for([i.id for i in query_chunk])
+        db.session.commit()
 
-  indexed_models -= excluded_models
-
-  for model in indexed_models:
-    mapper_class = model._sa_class_manager.mapper.base_mapper.class_
-    query = model.query.options(
-        db.undefer_group(mapper_class.__name__ + '_complete'),
-    )
-    for query_chunk in generate_query_chunks(query):
-      for instance in query_chunk:
-        indexer.create_record(fts_record_for(instance), False)
-      db.session.commit()
+  logger.info("Updating index for: %s", "Snapshot")
+  with benchmark("Create records for %s" % "Snapshot"):
+    reindex_snapshots()
+  indexer.invalidate_cache()
+  start_compute_attributes("all_latest")
 
 
 def get_permissions_json():
@@ -102,11 +137,29 @@ def get_config_json():
   """Get public app config"""
   with benchmark("Get config JSON"):
     public_config = dict(app.config.public_config)
+    public_config.update(get_public_config())
+
     for extension_module in get_extension_modules():
       if hasattr(extension_module, 'get_public_config'):
         public_config.update(
             extension_module.get_public_config(get_current_user()))
+
     return json.dumps(public_config)
+
+
+def get_public_config():
+  """Expose additional permissions-dependent config to client."""
+  if settings.INTEGRATION_SERVICE_URL:
+    external_service = "/people/suggest"
+  else:
+    external_service = None
+  return {
+      "external_help_url": getattr(settings, "EXTERNAL_HELP_URL", ""),
+      "snapshotable_objects": list(rules.Types.all),
+      "snapshotable_ignored": list(rules.Types.ignore),
+      "snapshotable_parents": list(rules.Types.parents),
+      "external_services": {"Person": external_service},
+  }
 
 
 def get_full_user_json():
@@ -133,12 +186,23 @@ def get_current_user_json():
     })
 
 
-def get_attributes_json():
-  """Get a list of all custom attribute definitions"""
-  with benchmark("Get attributes JSON"):
-    attrs = models.CustomAttributeDefinition.eager_query().filter(
-        models.CustomAttributeDefinition.definition_id.is_(None)
-    )
+def get_roles_json():
+  """Get a list of all roles"""
+  with benchmark("Get roles JSON"):
+    attrs = all_models.Role.query.all()
+    published = []
+    for attr in attrs:
+      published.append(publish(attr, attribute_whitelist=('id', 'name')))
+    published = publish_representation(published)
+    return as_json(published)
+
+
+def get_access_control_roles_json():
+  """Get a list of all access control roles"""
+  with benchmark("Get access roles JSON"):
+    attrs = all_models.AccessControlRole.query.options(
+        sqlalchemy.orm.undefer_group("AccessControlRole_complete")
+    ).all()
     published = []
     for attr in attrs:
       published.append(publish(attr))
@@ -146,7 +210,33 @@ def get_attributes_json():
     return as_json(published)
 
 
+def get_attributes_json():
+  """Get a list of all custom attribute definitions"""
+  with benchmark("Get attributes JSON"):
+    with benchmark("Get attributes JSON: query"):
+      attrs = models.CustomAttributeDefinition.eager_query().filter(
+          models.CustomAttributeDefinition.definition_id.is_(None)
+      ).all()
+    with benchmark("Get attributes JSON: publish"):
+      published = []
+      for attr in attrs:
+        published.append(publish(attr))
+      published = publish_representation(published)
+    with benchmark("Get attributes JSON: json"):
+      publish_json = as_json(published)
+      return publish_json
+
+
 def get_import_types(export_only=False):
+  """Returns types that can be imported (and exported) or exported only.
+
+  Args:
+    export_only (default False): If set to true, return objects that can only
+        be exported and not imported.
+  Returns:
+    A list of models with model_singular and title_plural as keys.
+  """
+  # pylint: disable=protected-access
   types = get_exportables if export_only else get_importables
   data = []
   for model in set(types().values()):
@@ -201,6 +291,8 @@ def base_context():
       current_user_json=get_current_user_json,
       full_user_json=get_full_user_json,
       attributes_json=get_attributes_json,
+      access_control_roles_json=get_access_control_roles_json,
+      roles_json=get_roles_json,
       all_attributes_json=get_all_attributes_json,
       import_definitions=get_import_definitions,
       export_definitions=get_export_definitions,
@@ -223,7 +315,7 @@ def index():
               For any questions, please contact your administrator.""",
           "alert alert-warning")
   about_url = getattr(settings, "ABOUT_URL", None)
-  about_text = getattr(settings, "ABOUT_TEXT", "About gGRC")
+  about_text = getattr(settings, "ABOUT_TEXT", "About GGRC")
   return render_template(
       "welcome/index.haml",
       about_url=about_url,
@@ -236,45 +328,74 @@ def index():
 def dashboard():
   """The dashboard page
   """
-  return render_template("dashboard/index.haml")
+  return render_template(
+      "dashboard/index.haml",
+      page_type="MY_WORK",
+  )
 
 
 @app.route("/objectBrowser")
 @login_required
-def objectBrowser():
+def object_browser():
   """The object Browser page
   """
-  return render_template("dashboard/index.haml")
-
-
-def generate_query_chunks(query):
-  """Generate query chunks used by pagination"""
-  chunk_size = 100
-  count = query.count()
-  for offset in range(0, count, chunk_size):
-    yield query.order_by('id').limit(chunk_size).offset(offset).all()
+  return render_template(
+      "dashboard/index.haml",
+      page_type="ALL_OBJECTS",
+  )
 
 
 @app.route("/admin/reindex", methods=["POST"])
 @login_required
+@admin_required
 def admin_reindex():
   """Calls a webhook that reindexes indexable objects
   """
-  if not permissions.is_allowed_read("/admin", None, 1):
-    raise Forbidden()
-  task_queue = create_task("reindex", url_for(reindex.__name__), reindex)
+  task_queue = create_task(
+      name="reindex",
+      url=url_for(reindex.__name__),
+      queued_callback=reindex
+  )
   return task_queue.make_response(
       app.make_response(("scheduled %s" % task_queue.name, 200,
                          [('Content-Type', 'text/html')])))
 
 
+@app.route("/admin/refresh_revisions", methods=["POST"])
+@login_required
+@admin_required
+def admin_refresh_revisions():
+  """Calls a webhook that refreshes revision content."""
+  admins = getattr(settings, "BOOTSTRAP_ADMIN_USERS", [])
+  if get_current_user().email not in admins:
+    raise Forbidden()
+
+  task_queue = create_task("refresh_revisions", url_for(
+      refresh_revisions.__name__), refresh_revisions)
+  return task_queue.make_response(
+      app.make_response(("scheduled %s" % task_queue.name, 200,
+                         [('Content-Type', 'text/html')])))
+
+
+@app.route("/admin/compute_attributes", methods=["POST"])
+@login_required
+@admin_required
+def send_event_job():
+  with benchmark("POST /admin/compute_attributes"):
+    if request.data:
+      revision_ids = request.get_json().get("revision_ids", [])
+    else:
+      revision_ids = "all_latest"
+    start_compute_attributes(revision_ids)
+    return app.make_response(("success", 200, [("Content-Type", "text/html")]))
+
+
 @app.route("/admin")
 @login_required
+@admin_required
 def admin():
   """The admin dashboard page
   """
-  if not permissions.is_allowed_read("/admin", None, 1):
-    raise Forbidden()
   return render_template("admin/index.haml")
 
 
@@ -298,7 +419,6 @@ def contributed_object_views():
       object_view(models.BackgroundTask),
       object_view(models.Program),
       object_view(models.Audit),
-      object_view(models.Directive, RedirectedPolymorphView),
       object_view(models.Contract),
       object_view(models.Policy),
       object_view(models.Regulation),
@@ -312,7 +432,6 @@ def contributed_object_views():
       object_view(models.System),
       object_view(models.Process),
       object_view(models.Product),
-      object_view(models.Request),
       object_view(models.OrgGroup),
       object_view(models.Facility),
       object_view(models.Market),
@@ -322,6 +441,7 @@ def contributed_object_views():
       object_view(models.Person),
       object_view(models.Vendor),
       object_view(models.Issue),
+      object_view(models.Snapshot),
   ]
 
 
@@ -344,12 +464,11 @@ def init_extra_views(app_):
 
   This should be used for any views that might use extension modules.
   """
-  mockups.init_mockup_views()
   filters.init_filter_views()
   converters.init_converter_views()
   cron.init_cron_views(app_)
   notifications.init_notification_views(app_)
-  services_query.init_query_view(app_)
+  query_views.init_query_views(app_)
 
 
 def init_all_views(app_):

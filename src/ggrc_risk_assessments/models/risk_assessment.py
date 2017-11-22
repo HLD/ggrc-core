@@ -1,9 +1,11 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
+"""Risk Assessment model."""
+
 from ggrc import db
-from ggrc.models.mixins import Base
-from ggrc.models.mixins import CustomAttributable
+from ggrc.fulltext.mixin import Indexed
+from ggrc.models.mixins import CustomAttributable, TestPlanned
 from ggrc.models.mixins import Described
 from ggrc.models.mixins import Noted
 from ggrc.models.mixins import Slugged
@@ -14,10 +16,13 @@ from ggrc.models.object_document import Documentable
 from ggrc.models.person import Person
 from ggrc.models.program import Program
 from ggrc.models.relationship import Relatable
+from ggrc.models import reflection
 
 
-class RiskAssessment(Documentable, Slugged, Timeboxed, Noted, Described,
-                     CustomAttributable, Titled, Relatable, Base, db.Model):
+class RiskAssessment(Documentable, Timeboxed, Noted, Described,
+                     CustomAttributable, Titled, Relatable, Slugged,
+                     TestPlanned, Indexed, db.Model):
+  """Risk Assessment model."""
   __tablename__ = 'risk_assessments'
   _title_uniqueness = False
 
@@ -42,11 +47,11 @@ class RiskAssessment(Documentable, Slugged, Timeboxed, Noted, Described,
 
   _fulltext_attrs = []
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'ra_manager',
       'ra_counsel',
       'program',
-  ]
+  )
 
   _aliases = {
       "ra_manager": {
@@ -69,7 +74,7 @@ class RiskAssessment(Documentable, Slugged, Timeboxed, Noted, Described,
           "display_name": "Program",
           "mandatory": True,
           "filter_by": "_filter_by_program",
-      }
+      },
   }
 
   @classmethod

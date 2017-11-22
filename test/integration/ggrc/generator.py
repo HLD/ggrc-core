@@ -1,11 +1,10 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """This module contains object generation utilities."""
 
 import datetime
 import random
-import string
 
 import names
 
@@ -15,19 +14,16 @@ from ggrc.app import app
 from ggrc.services import common
 from ggrc_basic_permissions import models as permissions_models
 from integration.ggrc import api_helper
+from integration.ggrc.models import factories
 
 
 class Generator(object):
   """Generator base class."""
 
-  def __init__(self):
+  def __init__(self, fail_no_json=True):
     self.api = api_helper.Api()
     self.resource = common.Resource()
-
-  @staticmethod
-  def random_str(length=8,
-                 chars=string.ascii_uppercase + string.digits + "  _.-"):
-    return ''.join(random.choice(chars) for _ in range(length))
+    self._fail_no_json = fail_no_json
 
   @staticmethod
   def random_date(start=datetime.date.today(), end=None):
@@ -39,6 +35,7 @@ class Generator(object):
 
   def generate(self, obj_class, obj_name=None, data=None):
     """Generate `obj_class` instance with fields populated from `data`."""
+    # pylint: disable=protected-access
     if obj_name is None:
       obj_name = obj_class._inflector.table_plural
     if data is None:
@@ -49,11 +46,21 @@ class Generator(object):
       try:
         response_obj = obj_class.query.get(response.json[obj_name]['id'])
       except TypeError:
-        raise Exception("Invalid response.\nResponse: {}\nError: {}".format(
-            response,
-            response.data
-        ))
+        if self._fail_no_json:
+          raise Exception("Invalid response.\nResponse: {}\nError: {}".format(
+              response,
+              response.data
+          ))
+        response_obj = None
     return response, response_obj
+
+  @staticmethod
+  def get_header():
+    return {
+        "Content-Type": "application/json",
+        "X-Requested-By": "GGRC",
+        "X-export-view": "blocks",
+    }
 
   def modify(self, obj, obj_name, data):
     """Make a PUT request to modify `obj` with new fields in `data`."""
@@ -86,22 +93,33 @@ class ObjectGenerator(Generator):
         "type": obj.type,
     }
 
-  def generate_object(self, obj_class, data=None):
-    """Generate an object of `obj_class` with fields from `data`."""
+  def generate_object(self, obj_class, data=None, add_fields=True):
+    """Generate an object of `obj_class` with fields from `data`.
+
+    This generator is used for creating objects with data. By default it will
+    add the first user in the DB as the object owner and it will create a
+    random title.
+
+    Args:
+      obj_class: Model that we want to generate.
+      add_fields: Flag for adding owners and title default field values. If
+        these are present in the data, default values will be overridden.
+      data: Dict containing generation data for the object.
+
+    Returns:
+      Tuple containing server response and the generated object.
+    """
     # pylint: disable=protected-access
     if data is None:
       data = {}
     obj_name = obj_class._inflector.table_singular
     obj = obj_class()
     obj_dict = self.obj_to_dict(obj, obj_name)
-    obj_dict[obj_name].update({
-        "owners": [{
-            "id": 1,
-            "href": "/api/people/1",
-            "type": "Person"
-        }],
-        "title": self.random_str(),
-    })
+    if add_fields:
+      obj_dict[obj_name].update({
+          "owners": [self.create_stub(models.Person.query.first())],
+          "title": factories.random_str(),
+      })
     obj_dict[obj_name].update(data)
     return self.generate(obj_class, obj_name, obj_dict)
 
@@ -127,7 +145,8 @@ class ObjectGenerator(Generator):
         "context": context,
     }
     data.update(kwargs)
-    return self.generate_object(models.Relationship, data=data)
+    return self.generate_object(
+        models.Relationship, add_fields=False, data=data)
 
   def generate_comment(self, commentable, assignee_type, description,
                        **kwargs):
@@ -139,8 +158,7 @@ class ObjectGenerator(Generator):
     created.
 
     Args:
-      commentable (db.Model): Model that is commentable such as Request or
-        Assessment.
+      commentable (db.Model): Model that is commentable such as Assessment.
       assignee_type (string): Assignee type of the person creating the comment.
       description (string): Comment content.
       kwargs (dict): Any additional data added to the comments.
@@ -154,17 +172,20 @@ class ObjectGenerator(Generator):
         "context": self.create_stub(commentable),
     }
     data.update(kwargs)
-    response, comment_ = self.generate_object(models.Comment, data=data)
+    response, comment_ = self.generate_object(
+        models.Comment, add_fields=False, data=data)
     # Refresh the object after an API call.
     commentable = commentable.__class__.query.get(commentable.id)
     self.generate_relationship(commentable, comment_, commentable.context)
     return response, comment_
 
-  def generate_user_role(self, person, role):
+  def generate_user_role(self, person, role, context=None):
     """Generate a mapping between `role` and `person`."""
+    if context:
+      context = self.create_stub(context)
     data = {
         "user_role": {
-            "context": None,
+            "context": context,
             "person": self.create_stub(person),
             "role": self.create_stub(role),
         }
@@ -238,11 +259,11 @@ class ObjectGenerator(Generator):
     obj_name = "custom_attribute_definition"
     data = {
         obj_name: {
-            "title": kwargs.get("title", self.random_str()),
+            "title": kwargs.get("title", factories.random_str()),
             "custom_attribute_definitions": [],
             "custom_attributes": {},
             "definition_type": definition_type,
-            "modal_title": kwargs.get("modal_title", self.random_str()),
+            "modal_title": kwargs.get("modal_title", factories.random_str()),
             "attribute_type": kwargs.get("attribute_type", "Text"),
             "mandatory": kwargs.get("mandatory", False),
             "helptext": kwargs.get("helptext", None),
@@ -260,7 +281,7 @@ class ObjectGenerator(Generator):
     obj_name = "custom_attribute_value"
     data = {
         obj_name: {
-            "title": kwargs.get("title", self.random_str()),
+            "title": kwargs.get("title", factories.random_str()),
             "custom_attribute_id": custom_attribute_id,
             "attributable_type": attributable.__class__.__name__,
             "attributable_id": attributable.id,

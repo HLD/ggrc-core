@@ -1,61 +1,93 @@
-/*!
- Copyright (C) 2016 Google Inc.
+/*
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
+
+import './sortable-column';
+import {REFRESH_RELATED} from '../../events/eventTypes';
 
 (function (can, GGRC, CMS) {
   'use strict';
 
   var defaultOrderBy = 'created_at';
 
-  can.Component.extend({
+  GGRC.Components('relatedObjects', {
     tag: 'related-objects',
-    scope: {
-      isLoading: false,
-      baseInstance: null,
-      relatedObjects: [],
-      relatedItemsType: '@',
-      orderBy: '@',
-      paging: {
-        current: 1,
-        pageSize: 5,
-        pageSizeSelect: [5, 10, 15]
+    viewModel: {
+      define: {
+        noRelatedObjectsMessage: {
+          type: 'string',
+          get: function () {
+            return 'No Related ' + this.attr('relatedItemsType') + 's ' +
+              'were found';
+          },
+        },
+        isLoading: {
+          type: 'boolean',
+          value: false,
+        },
+        paging: {
+          value: function () {
+            return new GGRC.VM.Pagination({pageSizeSelect: [5, 10, 15]});
+          },
+        },
+        relatedObjects: {
+          Value: can.List,
+        },
+        predefinedFilter: {
+          type: '*',
+        },
       },
-      getParams: function () {
-        var id = this.attr('baseInstance.id');
-        var type = this.attr('baseInstance.type');
-        var relatedType = this.attr('relatedItemsType');
-        var page = this.attr('paging');
-        var orderBy = this.attr('orderBy') || defaultOrderBy;
-        var params = {};
-        var first;
-        var last;
+      baseInstance: null,
+      relatedItemsType: '@',
+      orderBy: {},
+      initialOrderBy: '@',
+      selectedItem: {},
+      objectSelectorEl: '.grid-data__action-column button',
+      getFilters: function (id, type, isAssessment) {
+        var predefinedFilter = this.attr('predefinedFilter');
+        var filters;
 
-        if (page.current && page.pageSize) {
-          first = (page.current - 1) * page.pageSize;
-          last = page.current * page.pageSize;
-        }
-        params.data = [{
-          limit: [first, last],
-          object_name: relatedType,
-          order_by: [{name: orderBy, desc: true}],
-          filters: {
+        if (predefinedFilter) {
+          filters = predefinedFilter;
+        } else {
+          filters = {
             expression: {
               object_name: type,
-              op: {name: 'similar'},
-              ids: [id]
-            }
-          }
+              op: isAssessment ? {name: 'similar'} : {name: 'relevant'},
+              ids: [id],
+            },
+          };
+        }
+        return filters;
+      },
+      getParams: function () {
+        var id;
+        var type;
+        var relatedType = this.attr('relatedItemsType');
+        var isAssessment = this.attr('baseInstance.type') === 'Assessment';
+        var isSnapshot = !!this.attr('baseInstance.snapshot');
+        var filters;
+        var params = {};
+
+        if (isSnapshot) {
+          id = this.attr('baseInstance.snapshot.child_id');
+          type = this.attr('baseInstance.snapshot.child_type');
+        } else {
+          id = this.attr('baseInstance.id');
+          type = this.attr('baseInstance.type');
+        }
+        filters = this.getFilters(id, type, isAssessment);
+        params.data = [{
+          limit: this.attr('paging.limits'),
+          object_name: relatedType,
+          order_by: this.getSortingInfo(),
+          filters: filters,
         }];
         return params;
       },
-      updatePaging: function (total) {
-        var count = Math.ceil(total / this.attr('paging.pageSize'));
-        this.attr('paging.total', total);
-        this.attr('paging.count', count);
-      },
       loadRelatedItems: function () {
-        var dfd = new can.Deferred();
+        var dfd = can.Deferred();
         var params = this.getParams();
         this.attr('isLoading', true);
         GGRC.Utils.QueryAPI
@@ -65,11 +97,12 @@
             var data = responseArr[0];
             var values = data[relatedType].values;
             var result = values.map(function (item) {
-              item.instance = new CMS.Models[relatedType](item);
-              return item;
+              return {
+                instance: CMS.Models[relatedType].model(item),
+              };
             });
             // Update paging object
-            this.updatePaging(data[relatedType].total);
+            this.attr('paging.total', data[relatedType].total);
             dfd.resolve(result);
           }.bind(this))
           .fail(function () {
@@ -80,30 +113,49 @@
           }.bind(this));
         return dfd;
       },
+      getSortingInfo: function () {
+        var orderBy = this.attr('orderBy');
+        var defaultOrder;
+
+        if (!orderBy.attr('field')) {
+          defaultOrder = this.attr('initialOrderBy') || defaultOrderBy;
+          return defaultOrder.split(',').map(function (field) {
+            return {name: field, desc: true};
+          });
+        }
+
+        return [{
+          name: orderBy.attr('field'),
+          desc: orderBy.attr('direction') === 'desc'}];
+      },
       setRelatedItems: function () {
         this.attr('relatedObjects').replace(this.loadRelatedItems());
-      }
+      },
     },
     init: function () {
-      this.scope.setRelatedItems();
+      this.viewModel.setRelatedItems();
     },
     events: {
-      '{scope.paging} current': function () {
-        this.scope.setRelatedItems();
+      '{viewModel.paging} current': function () {
+        this.viewModel.setRelatedItems();
       },
-      '{scope.paging} pageSize': function () {
-        this.scope.setRelatedItems();
+      '{viewModel.paging} pageSize': function () {
+        this.viewModel.setRelatedItems();
       },
-      '{scope.baseInstance} related_destinations': function () {
-        if (!this.scope.attr('isLoading')) {
-          this.scope.setRelatedItems();
+      '{viewModel.baseInstance} refreshInstance': function () {
+        this.viewModel.setRelatedItems();
+      },
+      [`{viewModel.baseInstance} ${REFRESH_RELATED.type}`]:
+        function (scope, event) {
+        let vm = this.viewModel;
+
+        if (vm.attr('relatedItemsType') === event.model) {
+          vm.setRelatedItems();
         }
       },
-      '{scope.baseInstance} related_sources': function () {
-        if (!this.scope.attr('isLoading')) {
-          this.scope.setRelatedItems();
-        }
-      }
-    }
+      '{viewModel.orderBy} changed': function () {
+        this.viewModel.setRelatedItems();
+      },
+    },
   });
 })(window.can, window.GGRC, window.CMS);

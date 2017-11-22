@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -7,11 +7,12 @@ from sqlalchemy import orm
 
 from ggrc import db
 from ggrc.models.deferred import deferred
-from ggrc.models.mixins import Mapping, Timeboxed
-from ggrc.models.reflection import PublishOnly
+from ggrc.models.mixins import Base
+from ggrc.models.mixins import Timeboxed
+from ggrc.models import reflection
 
 
-class ObjectPerson(Timeboxed, Mapping, db.Model):
+class ObjectPerson(Timeboxed, Base, db.Model):
   __tablename__ = 'object_people'
 
   role = deferred(db.Column(db.String), 'ObjectPerson')
@@ -42,12 +43,12 @@ class ObjectPerson(Timeboxed, Mapping, db.Model):
         db.Index('ix_person_id', 'person_id'),
     )
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'role',
       'notes',
       'person',
       'personable',
-  ]
+  )
   _sanitize_html = [
       'notes',
   ]
@@ -67,7 +68,7 @@ class ObjectPerson(Timeboxed, Mapping, db.Model):
 class Personable(object):
 
   @declared_attr
-  def object_people(cls):
+  def object_people(cls):  # pylint: disable=no-self-argument
     cls.people = association_proxy(
         'object_people', 'person',
         creator=lambda person: ObjectPerson(
@@ -85,10 +86,10 @@ class Personable(object):
         cascade='all, delete-orphan',
     )
 
-  _publish_attrs = [
-      PublishOnly('people'),
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('people', create=False, update=False),
       'object_people',
-  ]
+  )
   _include_links = []
 
   @classmethod

@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """A module containing the workflow TaskGroup model."""
@@ -7,19 +7,20 @@
 from sqlalchemy import or_
 
 from ggrc import db
+from ggrc.fulltext.mixin import Indexed
 from ggrc.login import get_current_user
 from ggrc.models.associationproxy import association_proxy
 from ggrc.models.mixins import (
     Titled, Slugged, Described, Timeboxed, WithContact
 )
 from ggrc.models.reflection import AttributeInfo
-from ggrc.models.reflection import PublishOnly
+from ggrc.models import reflection
 from ggrc.models import all_models
 from ggrc_workflows.models.task_group_object import TaskGroupObject
 
 
 class TaskGroup(
-        WithContact, Timeboxed, Described, Titled, Slugged, db.Model):
+        WithContact, Timeboxed, Described, Titled, Slugged, Indexed, db.Model):
   """Workflow TaskGroup model."""
 
   __tablename__ = 'task_groups'
@@ -47,16 +48,16 @@ class TaskGroup(
   sort_index = db.Column(
       db.String(length=250), default="", nullable=False)
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'workflow',
       'task_group_objects',
-      PublishOnly('objects'),
+      reflection.Attribute('objects', create=False, update=False),
       'task_group_tasks',
       'lock_task_order',
       'sort_index',
       # Intentionally do not include `cycle_task_groups`
       # 'cycle_task_groups',
-  ]
+  )
 
   _aliases = {
       "title": "Summary",
@@ -64,7 +65,6 @@ class TaskGroup(
       "contact": {
           "display_name": "Assignee",
           "mandatory": True,
-          "filter_by": "_filter_by_contact",
       },
       "secondary_contact": None,
       "start_date": None,

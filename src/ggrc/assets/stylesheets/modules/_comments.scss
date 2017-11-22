@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -72,10 +72,12 @@
         margin-top: 7px;
       }
     }
+    .evidence-list {
+      margin-top: 5px;
+    }
     .entry-attachment {
       &.tree-item-add {
         display: inline-block;
-        margin: 0px 0 0px -6px;
         i {
           margin-top: 1px;
         }
@@ -119,7 +121,6 @@
             color: $gray;
             i {
               @include opacity(0.4);
-              @include transition(opacity 0.2s ease);
               margin: 7px 4px 0 0;
             }
             &:hover {

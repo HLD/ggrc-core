@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """A module containing the workflow TaskGroupObject model."""
@@ -7,12 +7,12 @@
 from sqlalchemy.ext.associationproxy import association_proxy
 
 from ggrc import db
-from ggrc.models.mixins import Mapping
+from ggrc.models.mixins import Base
 from ggrc.models.mixins import Timeboxed
-from ggrc.models.reflection import PublishOnly
+from ggrc.models import reflection
 
 
-class TaskGroupObject(Timeboxed, Mapping, db.Model):
+class TaskGroupObject(Timeboxed, Base, db.Model):
   """Workflow TaskGroupObject model."""
 
   __tablename__ = 'task_group_objects'
@@ -48,10 +48,7 @@ class TaskGroupObject(Timeboxed, Mapping, db.Model):
         db.Index('ix_task_group_id', 'task_group_id'),
     )
 
-  _publish_attrs = [
-      'task_group',
-      'object',
-  ]
+  _api_attrs = reflection.ApiAttributes('task_group', 'object')
   _sanitize_html = []
 
   @classmethod
@@ -95,10 +92,10 @@ class TaskGroupable(object):
       )
     cls.task_group_objects = make_task_group_objects(cls)
 
-  _publish_attrs = [
-      PublishOnly('task_groups'),
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute('task_groups', create=False, update=False),
       'task_group_objects',
-  ]
+  )
 
   _include_links = []
 

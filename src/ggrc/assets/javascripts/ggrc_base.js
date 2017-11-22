@@ -1,8 +1,8 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
-(function($, GGRC) {
+(function(GGRC, moment) {
   GGRC.mustache_path = '/static/mustache';
 
   GGRC.hooks = GGRC.hooks || {};
@@ -25,12 +25,6 @@
     }
     h.push(hook);
   };
-
-  GGRC.current_url_compute = can.compute(function() {
-    var path = window.location.pathname,
-      fragment = window.location.hash;
-    return window.encodeURIComponent(path + fragment);
-  });
 
   var onbeforeunload = function (evnt) {
       evnt = evnt || window.event;
@@ -152,28 +146,57 @@
     delay_leaving_page_until: $.proxy(notifier, "queue")
   });
 
-  GGRC.Errors = {
-    messages: {
+  GGRC.Errors = (function () {
+    var messages = {
+      'default': 'There was an error!',
+      '401': 'The server says you are not authorized. Are you logged in?',
       '403': 'You don\'t have the permission to access the ' +
       'requested resource. It is either read-protected or not ' +
-      'readable by the server.'
-    },
-    notifier: function (type, message) {
-      if (!type) {
-        type = 'warning';
+      'readable by the server.',
+      '409': 'There was a conflict while saving.' +
+      ' Your changes have not been saved yet.' +
+      ' Please refresh the page and try saving again',
+      '412': 'One of the form fields isn\'t right. ' +
+      'Check the form for any highlighted fields.'
+    };
+
+    /**
+     * Shows flash notification
+     * @param  {String} type    type of notification. error|warning
+     * @param  {String} message Plain text message or mustache template if data is passed
+     * @param  {Object} data data to populate mustache template
+     */
+    function notifier(type, message, data) {
+      var props = {};
+
+      if ( message && data ) {
+        message = can.mustache(message);
+        props.data = data;
       }
 
-      return function (err) {
-        var props = {};
+      type = type || 'warning';
+      props[type] = message || GGRC.Errors.messages.default;
+      $('body').trigger('ajax:flash', props);
+    }
 
-        if (!message && err && err.status) {
-          message = GGRC.Errors.messages[err.status];
+    function notifierXHR(type, message) {
+      return function (err) {
+        var status = err && err.status ? err.status : null;
+
+        if (status && !message) {
+          message = GGRC.Errors.messages[status];
         }
-        props[type] = message || 'There was an error!';
-        $('body').trigger('ajax:flash', props);
+
+        notifier(type, message);
       };
     }
-  };
+
+    return {
+      messages: messages,
+      notifier: notifier,
+      notifierXHR: notifierXHR
+    };
+  })();
 
   /*
     The GGRC Math library provides basic arithmetic across arbitrary precision numbers represented
@@ -326,4 +349,42 @@
     }
 
   });
-})(jQuery, window.GGRC = window.GGRC || {});
+
+  /*
+    The GGRC Date library provides basic methods for Date-to-string conversion.
+  */
+  GGRC.Date = GGRC.Date || {};
+  $.extend(GGRC.Date, {
+    // Date formats for the actual selected value, and for the date as
+    // displayed to the user. The Moment.js library and the jQuery datepicker
+    // use different format notation, thus separate settings for each.
+    // IMPORTANT: The pair of settings for each "type" of value (i.e. actual
+    // value / display value) must be consistent across both libraries!
+    MOMENT_ISO_DATE: 'YYYY-MM-DD',
+    MOMENT_DISPLAY_FMT: 'MM/DD/YYYY',
+    PICKER_ISO_DATE: 'yy-mm-dd',
+    PICKER_DISPLAY_FMT: 'mm/dd/yy',
+
+    /**
+    * Convert given Date, string or null to an Date object.
+    *
+    * @param {Date|string|null} date - Date, string in ISO date format or null
+    * @param {string} format - date format string ('YYYY-MM-DD' default value)
+    * @return {string|null} - Date object or null if string is not in ISO format or null
+    */
+    getDate(date, format = GGRC.Date.MOMENT_ISO_DATE) {
+      var momDate;
+
+      if (date instanceof Date) {
+        return date;
+      }
+
+      momDate = moment(date, format, true);
+      if (momDate.isValid()) {
+        return momDate.toDate();
+      }
+
+      return null;
+    },
+  });
+})(window.GGRC = window.GGRC || {}, moment);

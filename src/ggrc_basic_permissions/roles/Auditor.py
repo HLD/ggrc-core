@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 scope = "Audit"
@@ -9,11 +9,10 @@ description = """
 permissions = {
     "read": [
         "Audit",
-        "Request",
         "Assessment",
         "Issue",
         "Meeting",
-        "ObjectDocument",
+        "Snapshot",
         "ObjectPerson",
         "Relationship",
         "Document",
@@ -23,22 +22,19 @@ permissions = {
         "Context",
     ],
     "create": [
-        "Request",
         "Assessment",
         "Issue",
-        "Relationship",
         "Comment",
     ],
     "view_object_page": [
         "__GGRC_ALL__"
     ],
     "update": [
-        "Request",
         "Assessment",
+        "Snapshot",  # Needed for mapping snapshots to Assessments/Issues
         "Issue",
     ],
     "delete": [
-        "Request",
         "Assessment",
         "Issue"
     ],

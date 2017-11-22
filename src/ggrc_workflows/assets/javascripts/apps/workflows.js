@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -32,10 +32,31 @@
 
   var draftOnUpdateMixin;
 
+  var historyWidgetCountsName = 'cycles:history';
+  var currentWidgetCountsName = 'cycles:active';
+
+  var historyWidgetFilter = 'is_current = 0';
+  var currentWidgetFilter = 'is_current = 1';
+
   // Register `workflows` extension with GGRC
   GGRC.extensions.push(WorkflowExtension);
 
   WorkflowExtension.name = 'workflows';
+
+  WorkflowExtension.countsMap = {
+    history: {
+      name: 'Cycle',
+      countsName: historyWidgetCountsName,
+      additionalFilter: historyWidgetFilter
+    },
+    activeCycles: {
+      name: 'Cycle',
+      countsName: currentWidgetCountsName,
+      additionalFilter: currentWidgetFilter
+    },
+    person: 'Person',
+    taskGroup: 'TaskGroup'
+  };
 
   // Register Workflow models for use with `infer_object_type`
   WorkflowExtension.object_type_decision_tree = function () {
@@ -109,8 +130,7 @@
         context: Direct(
           'Context', 'related_object', 'context'),
         authorization_contexts: Multi(['context']),
-        authorizations: Cross(
-          'authorization_contexts', 'user_roles'),
+        authorizations: Cross('context', 'user_roles'),
         authorized_people: Cross(
           'authorization_contexts', 'authorized_people'),
         mapped_and_or_authorized_people: Multi([
@@ -167,7 +187,7 @@
             'DataAsset', 'Facility', 'Market', 'OrgGroup', 'Vendor', 'Process',
             'Product', 'Project', 'System', 'Regulation', 'Policy', 'Contract',
             'Standard', 'Program', 'Issue', 'Control', 'Section', 'Clause',
-            'Objective', 'Audit', 'Assessment', 'AccessGroup', 'Request',
+            'Objective', 'Audit', 'Assessment', 'AccessGroup',
             'Document', 'Risk', 'Threat'
           ]
         },
@@ -202,7 +222,6 @@
         related_controls: TypeFilter('related_objects', 'Control'),
         related_documents: TypeFilter('related_objects', 'Document'),
         related_assessments: TypeFilter('related_objects', 'Assessment'),
-        related_requests: TypeFilter('related_objects', 'Request'),
         regulations: TypeFilter('related_objects', 'Regulation'),
         contracts: TypeFilter('related_objects', 'Contract'),
         policies: TypeFilter('related_objects', 'Policy'),
@@ -244,11 +263,23 @@
       },
 
       CycleTaskEntry: {
-        documents: Proxy(
-          'Document',
-          'document', 'ObjectDocument',
-          'documentable', 'object_documents'
+        related_objects_as_source: Proxy(
+          null,
+          'destination', 'Relationship',
+          'source', 'related_destinations'
         ),
+        related_objects_as_destination: Proxy(
+          null,
+          'source', 'Relationship',
+          'destination', 'related_sources'
+        ),
+        related_objects: Multi(
+          ['related_objects_as_source', 'related_objects_as_destination']
+        ),
+        destinations: Direct('Relationship', 'source', 'related_destinations'),
+        sources: Direct('Relationship', 'destination', 'related_sources'),
+        relationships: Multi(['sources', 'destinations']),
+        documents: TypeFilter('related_objects', 'Document'),
         cycle: Direct(
           'Cycle', 'cycle_task_entries', 'cycle'),
         cycle_task_group_object_task: Direct(
@@ -272,7 +303,7 @@
           return CMS.Models.CycleTaskGroupObjectTask.findAll({
             contact_id: binding.instance.id,
             'cycle.is_current': true,
-            status__in: 'Assigned,InProgress,Finished,Declined'
+            status__in: 'Assigned,InProgress,Finished,Declined,Deprecated'
           });
         }, 'Cycle'),
         assigned_tasks_with_history: Search(function (binding) {
@@ -335,7 +366,7 @@
     var pageInstance = GGRC.page_instance();
     var treeWidgets = GGRC.tree_view.base_widgets_by_type;
     var subTrees = GGRC.tree_view.sub_tree_for;
-    var subTreeItems = ['Cycle', 'Request'];
+    var subTreeItems = ['Cycle'];
     var models = ['TaskGroup', 'Workflow', 'CycleTaskEntry',
       'CycleTaskGroupObjectTask', 'CycleTaskGroupObject', 'CycleTaskGroup'];
     _.each(_workflowObjectTypes, function (type) {
@@ -397,34 +428,23 @@
         workflow: {
           widget_id: 'workflow',
           widget_name: 'Workflows',
-          order: 400,
-          content_controller: GGRC.Controllers.TreeView,
+          widgetType: 'treeview',
+          treeViewDepth: 0,
           content_controller_options: {
             mapping: 'workflows',
             parent_instance: pageInstance,
-            model: CMS.Models.Workflow,
-            show_view: GGRC.mustache_path + '/workflows/tree.mustache',
-            footer_view: GGRC.mustache_path + '/workflows/tree_footer.mustache'
+            model: CMS.Models.Workflow
           }
         },
         task: {
           widget_id: 'task',
           widget_name: 'Workflow Tasks',
-          order: 410,
-          content_controller: GGRC.Controllers.TreeView,
+          widgetType: 'treeview',
+          treeViewDepth: 1,
           content_controller_options: {
             mapping: 'object_tasks',
             parent_instance: pageInstance,
             model: CMS.Models.CycleTaskGroupObjectTask,
-            show_view:
-              GGRC.mustache_path +
-              '/cycle_task_group_object_tasks/tree.mustache',
-            header_view:
-              GGRC.mustache_path +
-              '/cycle_task_group_object_tasks/tree_header.mustache',
-            footer_view:
-              GGRC.mustache_path +
-              '/cycle_task_group_object_tasks/tree_footer.mustache',
             add_item_view:
               GGRC.mustache_path +
               '/cycle_task_group_object_tasks/tree_add_item.mustache',
@@ -436,20 +456,7 @@
                 this.options.attr('mapping', el.attr('mapping'));
                 this.reload_list();
               }
-            },
-            child_options: [
-              {
-                model: CMS.Models.CycleTaskEntry,
-                mapping: 'cycle_task_entries',
-                show_view:
-                  GGRC.mustache_path + '/cycle_task_entries/tree.mustache',
-                footer_view:
-                  GGRC.mustache_path +
-                  '/cycle_task_entries/tree_footer.mustache',
-                draw_children: true,
-                allow_creating: true
-              }
-            ]
+            }
           }
         }
       };
@@ -501,17 +508,13 @@
           widget_id: 'person',
           widget_name: 'People',
           widget_icon: 'person',
-          content_controller: GGRC.Controllers.TreeView,
+          widgetType: 'treeview',
+          treeViewDepth: 3,
+          model: CMS.Models.Person,
           content_controller_options: {
             parent_instance: object,
             model: CMS.Models.Person,
             mapping: 'mapped_and_or_authorized_people',
-            show_view:
-              GGRC.mustache_path +
-              '/ggrc_basic_permissions/people_roles/' +
-              'authorizations_by_person_tree.mustache',
-            footer_view:
-              GGRC.mustache_path + '/base_objects/tree_footer.mustache',
             add_item_view:
               GGRC.mustache_path + '/wf_people/tree_add_item.mustache'
           }
@@ -520,98 +523,54 @@
           widget_id: 'task_group',
           widget_name: 'Setup',
           widget_icon: 'task_group',
-          content_controller: CMS.Controllers.TreeView,
-          content_controller_selector: 'ul',
-          widget_initial_content: '<ul class="tree-structure new-tree"></ul>',
+          widgetType: 'treeview',
+          treeViewDepth: 0,
+          model: CMS.Models.TaskGroup,
           content_controller_options: {
             parent_instance: object,
             model: CMS.Models.TaskGroup,
-            show_view: GGRC.mustache_path + '/task_groups/tree.mustache',
             sortable: true,
             sort_property: 'sort_index',
             mapping: 'task_groups',
-            draw_children: true,
-
-            // Note that we are using special naming for the tree views here.
-            // Also, tasks for a task group aren't directly mapping to the
-            // tasks themselves but to the join object.  This is important
-            // since the join objects themselves have important attributes.
-            child_options: [
-              {
-                model: can.Model.Cacheable,
-                mapping: 'objects',
-                show_view:
-                  GGRC.mustache_path +
-                  '/base_objects/task_group_subtree.mustache',
-                footer_view:
-                  GGRC.mustache_path +
-                  '/base_objects/task_group_subtree_footer.mustache',
-                add_item_view:
-                  GGRC.mustache_path +
-                  '/base_objects/task_group_subtree_add_item.mustache'
-              }, {
-                model: CMS.Models.TaskGroupTask,
-                mapping: 'task_group_tasks',
-                show_view:
-                  GGRC.mustache_path +
-                  '/task_group_tasks/task_group_subtree.mustache',
-                footer_view:
-                  GGRC.mustache_path +
-                  '/task_group_tasks/task_group_subtree_footer.mustache',
-                add_item_view:
-                  GGRC.mustache_path +
-                  '/task_group_tasks/task_group_subtree_add_item.mustache',
-                sort_property: 'sort_index',
-                allow_creating: true
-              }
-            ]
+            draw_children: true
           }
         }
       }
     );
 
     historyWidgetDescriptor = {
-      content_controller: CMS.Controllers.TreeView,
-      content_controller_selector: 'ul',
-      widget_initial_content: '<ul class="tree-structure new-tree"></ul>',
+      widgetType: 'treeview',
+      treeViewDepth: 3,
       widget_id: 'history',
       widget_name: 'History',
       widget_icon: 'history',
+      model: CMS.Models.Cycle,
+      forceRefetch: true,
       content_controller_options: {
         draw_children: true,
         parent_instance: object,
-        model: 'Cycle',
+        model: CMS.Models.Cycle,
+        countsName: historyWidgetCountsName,
         mapping: 'previous_cycles',
-        additional_filter: {
-          expression: {
-            op: {name: '='},
-            left: 'is_current',
-            right: 0
-          }
-        }
+        additional_filter: historyWidgetFilter
       }
     };
 
     currentWidgetDescriptor = {
-      content_controller: CMS.Controllers.TreeView,
-      content_controller_selector: 'ul',
-      widget_initial_content: '<ul class="tree-structure new-tree"></ul>',
+      widgetType: 'treeview',
+      treeViewDepth: 3,
       widget_id: 'current',
       widget_name: 'Active Cycles',
       widget_icon: 'cycle',
+      model: CMS.Models.Cycle,
+      forceRefetch: true,
       content_controller_options: {
         draw_children: true,
         parent_instance: object,
-        model: 'Cycle',
+        model: CMS.Models.Cycle,
+        countsName: currentWidgetCountsName,
         mapping: 'current_cycle',
-        additional_filter: {
-          expression: {
-            op: {name: '='},
-            left: 'is_current',
-            right: 1
-          }
-        },
-        header_view: GGRC.mustache_path + '/cycles/tree_header.mustache',
+        additional_filter: currentWidgetFilter,
         add_item_view:
           GGRC.mustache_path +
           '/cycle_task_group_object_tasks/tree_add_item.mustache'
@@ -621,11 +580,15 @@
     newWidgetDescriptors.history = historyWidgetDescriptor;
     newWidgetDescriptors.current = currentWidgetDescriptor;
 
-    GGRC.Utils.QueryAPI
-      .initCounts(['Cycle', 'Person', 'TaskGroup'], {
-        type: object.type,
-        id: object.id
-      });
+    GGRC.Utils.CurrentPage
+      .initCounts([
+        WorkflowExtension.countsMap.history,
+        WorkflowExtension.countsMap.activeCycles,
+        WorkflowExtension.countsMap.person,
+        WorkflowExtension.countsMap.taskGroup
+      ],
+        object.type,
+        object.id);
 
     new GGRC.WidgetList(
       'ggrc_workflows',
@@ -650,21 +613,13 @@
     descriptor[pageInstance.constructor.shortName] = {
       task: {
         widget_id: 'task',
+        widgetType: 'treeview',
+        treeViewDepth: 1,
         widget_name: 'My Tasks',
-        content_controller: GGRC.Controllers.TreeView,
-
+        model: CMS.Models.CycleTaskGroupObjectTask,
         content_controller_options: {
           parent_instance: GGRC.page_instance(),
           model: CMS.Models.CycleTaskGroupObjectTask,
-          show_view:
-            GGRC.mustache_path +
-            '/cycle_task_group_object_tasks/tree.mustache',
-          header_view:
-            GGRC.mustache_path +
-            '/cycle_task_group_object_tasks/tree_header.mustache',
-          footer_view:
-            GGRC.mustache_path +
-            '/cycle_task_group_object_tasks/tree_footer.mustache',
           add_item_view:
             GGRC.mustache_path +
             '/cycle_task_group_object_tasks/tree_add_item.mustache',
@@ -681,6 +636,21 @@
         }
       }
     };
+
+    // add 'Workflows' tab for 'All Objects' view
+    if (/^\/objectBrowser\/?$/.test(window.location.pathname)) {
+      descriptor[pageInstance.constructor.shortName].workflow = {
+        widget_id: 'workflow',
+        widget_name: 'Workflows',
+        widgetType: 'treeview',
+        treeViewDepth: 0,
+        content_controller_options: {
+          mapping: 'workflows',
+          parent_instance: pageInstance,
+          model: CMS.Models.Workflow
+        }
+      };
+    }
     new GGRC.WidgetList('ggrc_workflows', descriptor, [
       'info_widget',
       'task_widget'
@@ -688,13 +658,7 @@
   };
 
   GGRC.register_hook(
-      'LHN.Sections_workflow', GGRC.mustache_path + '/dashboard/lhn_workflows');
-
-  GGRC.register_hook(
       'Dashboard.Widgets', GGRC.mustache_path + '/dashboard/widgets');
-
-  GGRC.register_hook(
-      'Dashboard.Errors', GGRC.mustache_path + '/dashboard/info/errors');
 
   WorkflowExtension.init_mappings();
 
@@ -713,4 +677,4 @@
     }
     draftOnUpdateMixin.add_to(model);
   });
-})(this.can.$, this.CMS, this.GGRC);
+})(window.can.$, window.CMS, window.GGRC);

@@ -1,5 +1,5 @@
 /*!
- Copyright (C) 2016 Google Inc.
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 (function ($) {
@@ -12,6 +12,7 @@
       var $main = $this.closest('.item-main');
       var $li = $main.closest('li');
       var $content = $li.children('.item-content');
+      var $peopleInfo = $li.children('people-list-info');
       var $icon = $main.find('.openclose');
       var $parentTree = $this.closest('ul.new-tree');
       var cmd = command;
@@ -33,6 +34,7 @@
           $parentTree.removeClass('tree-open');
         }
         $content.removeClass('content-open');
+        can.trigger($peopleInfo, 'click', true);
       } else if (cmd === 'open') {
         if (useSlide) {
           $content.slideDown('fast');
@@ -43,6 +45,7 @@
         $li.addClass('item-open');
         $parentTree.addClass('tree-open');
         $content.addClass('content-open');
+        can.trigger($peopleInfo, 'click', false);
       }
     });
 

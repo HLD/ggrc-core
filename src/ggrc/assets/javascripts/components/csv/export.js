@@ -1,296 +1,330 @@
-/*!
-  Copyright (C) 2016 Google Inc.
+/*
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
-(function(can, $) {
-  var url = can.route.deparam(window.location.search.substr(1)),
-      filterModel = can.Map({
-        model_name: "Program",
-        value: "",
-        filter: {}
-      }),
-      panelModel = can.Map({
-        selected: {},
-        models: null,
-        type: "Program",
-        filter: "",
-        relevant: can.compute(function () {
-          return new can.List();
-        }),
-        columns: function () {
-          return _.filter(GGRC.model_attr_defs[this.attr("type")], function (el) {
-            return (!el.import_only) &&
-                   (el.display_name.indexOf("unmap:") === -1);
-          });
+import './csv-template';
+import '../relevant_filters';
+import exportPanelTemplate from './templates/export-panel.mustache';
+import exportGroupTemplate from './templates/export-group.mustache';
+import csvExportTemplate from './templates/csv-export.mustache';
+
+var url = can.route.deparam(window.location.search.substr(1));
+var filterModel = can.Map({
+  model_name: 'Program',
+  value: '',
+  filter: {},
+});
+var panelModel = can.Map({
+  models: null,
+  type: 'Program',
+  filter: '',
+  relevant: can.compute(function () {
+    return new can.List();
+  }),
+  attributes: new can.List(),
+  localAttributes: new can.List(),
+  mappings: new can.List(),
+});
+var panelsModel = can.Map({
+  items: new can.List()
+});
+var exportModel = can.Map({
+  panels: new panelsModel(),
+  loading: false,
+  url: '/_service/export_csv',
+  type: url.model_type || 'Program',
+  only_relevant: false,
+  filename: 'export_objects.csv',
+  format: 'gdrive'
+});
+var exportGroup;
+var exportPanel;
+
+GGRC.Components('csvExport', {
+  tag: 'csv-export',
+  template: csvExportTemplate,
+  viewModel: {
+    isFilterActive: false,
+    'export': new exportModel()
+  },
+  events: {
+    toggleIndicator: function (currentFilter) {
+      var isExpression =
+          !!currentFilter &&
+          !!currentFilter.expression.op &&
+          currentFilter.expression.op.name !== 'text_search' &&
+          currentFilter.expression.op.name !== 'exclude_text_search';
+      this.viewModel.attr('isFilterActive', isExpression);
+    },
+    '.tree-filter__expression-holder input keyup': function (el, ev) {
+      this.toggleIndicator(GGRC.query_parser.parse(el.val()));
+    },
+    '.option-type-selector change': function (el, ev) {
+      this.viewModel.attr('isFilterActive', false);
+    },
+    getObjectsForExport: function () {
+      var panels = this.viewModel.attr('export.panels.items');
+
+      return _.map(panels, function (panel, index) {
+        var relevantFilter;
+        var predicates;
+        var allItems = panel.attr('attributes')
+          .concat(panel.attr('mappings'))
+          .concat(panel.attr('localAttributes'));
+
+        predicates = _.map(panel.attr('relevant'), function (el) {
+          var id = el.model_name === '__previous__' ?
+            index - 1 : el.filter.id;
+          return id ? '#' + el.model_name + ',' + id + '#' : null;
+        });
+        if (panel.attr('snapshot_type')) {
+          predicates.push(
+            ' child_type = ' + panel.attr('snapshot_type') + ' '
+          );
         }
-      }),
-      panelsModel = can.Map({
-        items: new can.List()
-      }),
-      exportModel = can.Map({
-        panels: new panelsModel(),
-        loading: false,
-        url: "/_service/export_csv",
-        type: url.model_type || "Program",
-        edit_filename: false,
-        only_relevant: false,
-        filename: "Export Objects",
-        get_filename: can.compute(function () {
-          return this.attr("filename").replace(/\s+/, "_").toLowerCase() + ".csv";
-        })
+        relevantFilter = _.reduce(predicates, function (p1, p2) {
+          return p1 + ' AND ' + p2;
+        });
+        return {
+          object_name: panel.type,
+          fields: allItems
+            .filter((item) => item.isSelected)
+            .map((item) => item.key).serialize(),
+          filters: GGRC.query_parser.join_queries(
+            GGRC.query_parser.parse(relevantFilter || ''),
+            GGRC.query_parser.parse(panel.filter || '')
+          )
+        };
       });
-
-
-  can.Component.extend({
-    tag: "csv-template",
-    template: "<content></content>",
-    scope: {
-      url: "/_service/export_csv",
-      selected: [],
-      importable: GGRC.Bootstrap.importable,
     },
-    events: {
-      "#importSelect change": function (el, ev) {
-        var $items = el.find(":selected"),
-            selected = this.scope.attr("selected");
+    '#export-csv-button click': function (el, ev) {
+      this.viewModel.attr('export.loading', true);
 
-        $items.each(function () {
-          var $item = $(this);
-          if (_.findWhere(selected, {value: $item.val()})) {
-            return;
-          }
-          return selected.push({
-            name: $item.attr("label"),
-            value: $item.val()
+      GGRC.Utils.export_request({
+        data: {
+          objects: this.getObjectsForExport(),
+          export_to: this.viewModel.attr('export.chosenFormat')
+        }
+      }).then(function (data) {
+        var link;
+
+        if (this.viewModel.attr('export.chosenFormat') === 'gdrive') {
+          link = 'https://docs.google.com/spreadsheets/d/' + data.id;
+
+          GGRC.Controllers.Modals.confirm({
+            modal_title: 'Export Completed',
+            modal_description: 'File is exported successfully. ' +
+            'You can view the file here: ' +
+            '<a href="' + link + '" target="_blank">' + link + '</a>',
+            button_view: GGRC.mustache_path + '/modals/close_buttons.mustache'
           });
-        });
-      },
-      ".import-button click": function (el, ev) {
-        ev.preventDefault();
-        var data = _.map(this.scope.attr("selected"), function (el) {
-              return {
-                object_name: el.value,
-                fields: "all"
-              };
-            });
-        if (!data.length) {
-          return;
+        } else {
+          GGRC.Utils.download(this.viewModel.attr('export.filename'), data);
         }
-
-        GGRC.Utils.export_request({
-          data: data
-        }).then(function (data) {
-          GGRC.Utils.download("import_template.csv", data);
-        }.bind(this))
-        .fail(function (data) {
-          $("body").trigger("ajax:flash", {
-            "error": $(data.responseText.split("\n")[3]).text()
-          });
-        }.bind(this));
-      },
-      ".import-list a click": function (el, ev) {
-        ev.preventDefault();
-
-        var index = el.data("index"),
-            item = this.scope.attr("selected").splice(index, 1)[0];
-
-        this.element.find("#importSelect option:selected").each(function () {
-          var $item = $(this);
-          if ($item.val() === item.value) {
-            $item.prop("selected", false);
-          }
-        });
-      }
-    }
-  });
-
-  can.Component.extend({
-    tag: "csv-export",
-    template: "<content></content>",
-    scope: function () {
-      return {
-        isFilterActive: false,
-        export: new exportModel()
-      };
+      }.bind(this))
+      .always(function () {
+        this.viewModel.attr('export.loading', false);
+      }.bind(this));
     },
-    events: {
-      ".btn-title-change click": function (el, ev) {
-        ev.preventDefault();
-        this.scope.attr("export.edit_filename", !this.scope.attr("export.edit_filename"));
-      },
-
-      toggleIndicator: function (currentFilter) {
-        var isExpression =
-            !!currentFilter &&
-            !!currentFilter.expression.op &&
-            currentFilter.expression.op.name !== 'text_search' &&
-            currentFilter.expression.op.name !== 'exclude_text_search';
-        this.scope.attr('isFilterActive', isExpression);
-      },
-      '.tree-filter__expression-holder input keyup': function (el, ev) {
-        this.toggleIndicator(GGRC.query_parser.parse(el.val()));
-      },
-      '.option-type-selector change': function (el, ev) {
-        this.scope.attr('isFilterActive', false);
-      },
-      "#export-csv-button click": function (el, ev) {
-        ev.preventDefault();
-        this.scope.attr("export.loading", true);
-        var panels = this.scope.attr("export.panels.items"),
-            only_relevant = this.scope.attr("export.only_relevant"),
-            query = _.map(panels, function (panel, index) {
-              var relevant_filter = "",
-                  predicates;
-              predicates = _.map(panel.attr("relevant"), function (el) {
-                var id = el.model_name === "__previous__" ? index - 1 : el.filter.id;
-                return "#" + el.model_name + "," + id + "#";
-              });
-              relevant_filter = _.reduce(predicates, function (p1, p2) {
-                return p1 + " AND " + p2;
-              });
-              return {
-                object_name: panel.type,
-                fields: _.compact(_.map(panel.columns(),
-                  function (item, index) {
-                    if (panel.selected[index]) {
-                      return item.key;
-                    }
-                  })),
-                filters: GGRC.query_parser.join_queries(
-                  GGRC.query_parser.parse(relevant_filter || ""),
-                  GGRC.query_parser.parse(panel.filter || "")
-                )
-              };
-            });
-
-        GGRC.Utils.export_request({
-          data: query
-        }).then(function (data) {
-          GGRC.Utils.download(this.scope.attr("export.get_filename"), data);
-        }.bind(this))
-        .fail(function (data) {
-          $("body").trigger("ajax:flash", {
-            "error": $(data.responseText.split("\n")[3]).text()
-          });
-        }.bind(this))
-        .always(function () {
-          this.scope.attr("export.loading", false);
-        }.bind(this));
-      }
+    '#addAnotherObjectType click': function (el, ev) {
+      ev.preventDefault();
+      this.viewModel.attr('export').dispatch('addPanel');
     }
-  });
-
-
-  can.Component.extend({
-    tag: "export-group",
-    template: "<content></content>",
-    scope: {
-      _index: 0
-    },
-    events: {
-      "inserted": function () {
-        this.addPanel({
-          type: url.model_type || "Program"
-        });
-      },
-      addPanel: function (data) {
-        data = data || {};
-        var index = this.scope.attr("_index") + 1;
-        if (!data.type) {
-          data.type = "Program";
-        }
-
-        this.scope.attr("_index", index);
-        data.index = index;
-        return this.scope.attr("panels.items").push(new panelModel(data));
-      },
-      getIndex: function (el) {
-        return +el.closest("export-panel").control().scope.attr("item.index");
-      },
-      ".remove_filter_group click": function (el, ev) {
-        ev.preventDefault();
-        var elIndex = this.getIndex(el),
-            index = _.pluck(this.scope.attr("panels.items"), "index").indexOf(elIndex);
-        this.scope.attr("panels.items").splice(index, 1);
-      },
-      "#addAnotherObjectType click": function (el, ev) {
-        ev.preventDefault();
-        this.addPanel();
-      }
-    }
-  });
-
-  can.Component.extend({
-    tag: "export-panel",
-    template: "<content></content>",
-    scope: {
-      exportable: GGRC.Bootstrap.exportable,
-      panel_number: "@",
-      has_parent: false,
-      fetch_relevant_data: function (id, type) {
-        var dfd = CMS.Models[type].findOne({id: id});
-        dfd.then(function (result) {
-          this.attr("item.relevant").push(new filterModel({
-            model_name: url.relevant_type,
-            value: url.relevant_id,
-            filter: result
-          }));
-        }.bind(this));
-      }
-    },
-    events: {
-      inserted: function () {
-        var panel_number = +this.scope.attr("panel_number");
-
-        if (!panel_number && url.relevant_id && url.relevant_type) {
-          this.scope.fetch_relevant_data(url.relevant_id, url.relevant_type);
-        }
-        this.setSelected();
-      },
-      '[data-action=attribute_select_toggle] click': function (el, ev) {
-        var items = GGRC.model_attr_defs[this.scope.attr('item.type')];
-        var isMapping = el.data('type') === 'mappings';
-        var value = el.data('value');
-
-        _.each(items, function (item, index) {
-          if (isMapping && item.type === 'mapping') {
-            this.scope.attr('item.selected.' + index, value);
-          }
-          if (!isMapping && item.type !== 'mapping') {
-            this.scope.attr('item.selected.' + index, value);
-          }
-        }.bind(this));
-      },
-      setSelected: function () {
-        var selected = _.reduce(this.scope.attr('item').columns(),
-          function (memo, data, index) {
-            memo[index] = true;
-            return memo;
-          }, {});
-        this.scope.attr('item.selected', selected);
-      },
-      "{scope.item} type": function () {
-        this.scope.attr("item.selected", {});
-        this.scope.attr("item.relevant", []);
-        this.scope.attr("item.filter", "");
-        this.scope.attr("item.has_parent", false);
-
-        this.setSelected();
-      }
-    },
-    helpers: {
-      first_panel: function (options) {
-        if (+this.attr("panel_number") > 0) {
-          return options.fn();
-        }
-        return options.inverse();
-      }
-    }
-  });
-  var csvExport = $("#csv_export");
-  if (csvExport.length) {
-    csvExport.html(can.view(GGRC.mustache_path + "/import_export/export.mustache", {}));
   }
+});
 
-})(window.can, window.can.$);
+exportGroup = GGRC.Components('exportGroup', {
+  tag: 'export-group',
+  template: exportGroupTemplate,
+  viewModel: {
+    index: 0,
+    'export': '@'
+  },
+  events: {
+    inserted: function () {
+      this.addPanel({
+        type: url.model_type || 'Program',
+        isSnapshots: url.isSnapshots
+      });
+    },
+    addPanel: function (data) {
+      var index = this.viewModel.attr('index') + 1;
+
+      data = data || {};
+      if (!data.type) {
+        data.type = 'Program';
+      } else if (data.isSnapshots === 'true') {
+        data.snapshot_type = data.type;
+        data.type = 'Snapshot';
+      }
+
+      this.viewModel.attr('index', index);
+      return this.viewModel.attr('panels.items')
+        .push(new panelModel(data));
+    },
+    getIndex: function (el) {
+      return Number($(el.closest('export-panel'))
+        .viewModel().attr('panel_number'));
+    },
+    '.remove_filter_group click': function (el, ev) {
+      var index = this.getIndex(el);
+
+      ev.preventDefault();
+      this.viewModel.attr('panels.items').splice(index, 1);
+    },
+    '{viewModel.export} addPanel': function () {
+      this.addPanel();
+    }
+  }
+});
+
+exportPanel = GGRC.Components('exportPanel', {
+  tag: 'export-panel',
+  template: exportPanelTemplate,
+  viewModel: {
+    define: {
+      first_panel: {
+        type: 'boolean',
+        get: function () {
+          return Number(this.attr('panel_number')) === 0;
+        },
+      },
+      showAttributes: {
+        set: function (newValue, setValue) {
+          this.updateIsSelected(
+            this.attr('item.attributes'), newValue);
+
+          setValue(newValue);
+        },
+      },
+      showMappings: {
+        set: function (newValue, setValue) {
+          this.updateIsSelected(
+            this.attr('item.mappings'), newValue);
+
+          setValue(newValue);
+        },
+      },
+      showLocalAttributes: {
+        set: function (newValue, setValue) {
+          this.updateIsSelected(
+            this.attr('item.localAttributes'), newValue);
+
+          setValue(newValue);
+        },
+      },
+    },
+    exportable: GGRC.Bootstrap.exportable,
+    snapshotable_objects: GGRC.config.snapshotable_objects,
+    panel_number: '@',
+    has_parent: false,
+    fetch_relevant_data: function (id, type) {
+      var dfd = CMS.Models[type].findOne({id: id});
+      dfd.then(function (result) {
+        this.attr('item.relevant').push(new filterModel({
+          model_name: url.relevant_type,
+          value: url.relevant_id,
+          filter: result,
+        }));
+      }.bind(this));
+    },
+    getModelAttributeDefenitions: function (type) {
+      return GGRC.model_attr_defs[type];
+    },
+    useLocalAttribute: function () {
+      return this.attr('item.type') === 'Assessment';
+    },
+    filterModelAttributes: function (attr, predicate) {
+      return predicate &&
+        !attr.import_only &&
+        attr.display_name.indexOf('unmap:') === -1;
+    },
+    refreshItems: function () {
+      var currentPanel = this.attr('item');
+      var definitions = this
+        .getModelAttributeDefenitions(currentPanel.attr('type'));
+      var localAttributes;
+
+      var attributes = _.filter(definitions, function (el) {
+        return this.filterModelAttributes(el,
+          el.type !== 'mapping' && el.type !== 'object_custom');
+      }.bind(this));
+
+      var mappings = _.filter(definitions, function (el) {
+        return this.filterModelAttributes(el, el.type === 'mapping');
+      }.bind(this));
+
+      currentPanel.attr('attributes', attributes);
+      currentPanel.attr('mappings', mappings);
+
+      if (this.useLocalAttribute()) {
+        localAttributes = _.filter(definitions, function (el) {
+          return this.filterModelAttributes(el, el.type === 'object_custom');
+        }.bind(this));
+
+        currentPanel.attr('localAttributes', localAttributes);
+      }
+    },
+    updateIsSelected: function (items, isSelected) {
+      items.forEach(function (item) {
+        item.attr('isSelected', isSelected);
+      });
+    },
+    setSelected: function () {
+      this.attr('showMappings', true);
+      this.attr('showAttributes', true);
+
+      if (this.useLocalAttribute()) {
+        this.attr('showLocalAttributes', true);
+      }
+    },
+  },
+  events: {
+    inserted: function () {
+      var panelNumber = Number(this.viewModel.attr('panel_number'));
+
+      if (!panelNumber && url.relevant_id && url.relevant_type) {
+        this.viewModel.fetch_relevant_data(url.relevant_id, url.relevant_type);
+      }
+      this.viewModel.refreshItems();
+      this.viewModel.setSelected();
+    },
+    '[data-action=select_toggle] click': function (el, ev) {
+      var type = el.data('type');
+      var value = el.data('value');
+      var targetList;
+
+      switch (type) {
+        case 'local_attributes': {
+          targetList = this.viewModel.attr('item.localAttributes');
+          break;
+        }
+        case 'attributes': {
+          targetList = this.viewModel.attr('item.attributes');
+          break;
+        }
+        default: {
+          targetList = this.viewModel.attr('item.mappings');
+        }
+      }
+
+      this.viewModel.updateIsSelected(targetList, value);
+    },
+    '{viewModel.item} type': function () {
+      this.viewModel.attr('item.relevant', []);
+      this.viewModel.attr('item.filter', '');
+      this.viewModel.attr('item.snapshot_type', '');
+      this.viewModel.attr('item.has_parent', false);
+
+      if (this.viewModel.attr('item.type') === 'Snapshot') {
+        this.viewModel.attr('item.snapshot_type', 'Control');
+      }
+
+      this.viewModel.refreshItems();
+      this.viewModel.setSelected();
+    },
+  },
+});
+
+export {exportGroup, exportPanel};

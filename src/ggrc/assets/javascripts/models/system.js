@@ -1,5 +1,5 @@
 /*!
- Copyright (C) 2016 Google Inc.
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -27,10 +27,9 @@ can.Model.Cacheable('CMS.Models.SystemOrProcess', {
       return CMS.Models.System.model(params);
     }
   },
-  mixins: ['ownable', 'contactable', 'unique_title'],
+  mixins: ['unique_title', 'timeboxed'],
   attributes: {
     context: 'CMS.Models.Context.stub',
-    owners: 'CMS.Models.Person.stubs',
     modified_by: 'CMS.Models.Person.stub',
     object_people: 'CMS.Models.ObjectPerson.stubs',
     people: 'CMS.Models.Person.stubs',
@@ -40,27 +39,22 @@ can.Model.Cacheable('CMS.Models.SystemOrProcess', {
     controls: 'CMS.Models.Control.stubs',
     sections: 'CMS.Models.get_stubs',
     network_zone: 'CMS.Models.Option.stub',
-    custom_attribute_values: 'CMS.Models.CustomAttributeValue.stubs',
-    start_date: 'date',
-    end_date: 'date'
+    custom_attribute_values: 'CMS.Models.CustomAttributeValue.stubs'
   },
   tree_view_options: {
-    show_view: '/static/mustache/base_objects/tree.mustache',
-    footer_view: GGRC.mustache_path + '/base_objects/tree_footer.mustache',
+    attr_view: GGRC.mustache_path + '/base_objects/tree-item-attr.mustache',
     attr_list: can.Model.Cacheable.attr_list.concat([
       {
         attr_title: 'Network Zone',
         attr_name: 'network_zone',
-        attr_sort_field: 'network_zone.title'
+        attr_sort_field: 'network_zone'
       },
       {attr_title: 'Effective Date', attr_name: 'start_date'},
-      {attr_title: 'Stop Date', attr_name: 'end_date'},
-      {attr_title: 'URL', attr_name: 'url'},
+      {attr_title: 'Last Deprecated Date', attr_name: 'end_date'},
       {attr_title: 'Reference URL', attr_name: 'reference_url'}
     ]),
     add_item_view: GGRC.mustache_path + '/base_objects/tree_add_item.mustache',
-    link_buttons: true,
-    child_options: []
+    link_buttons: true
   },
   links_to: {
     System: {},
@@ -108,24 +102,26 @@ CMS.Models.SystemOrProcess('CMS.Models.System', {
   mixins: ['ca_update'],
   cache: can.getObject('cache', CMS.Models.SystemOrProcess, true),
   is_custom_attributable: true,
+  isRoleable: true,
   attributes: {},
   defaults: {
     title: '',
     url: '',
     status: 'Draft'
   },
-  statuses: ['Draft', 'Final', 'Effective', 'Ineffective', 'Launched',
-    'Not Launched', 'In Scope', 'Not in Scope', 'Deprecated'],
+  sub_tree_view_options: {
+    default_filter: ['Product'],
+  },
+  statuses: ['Draft', 'Deprecated', 'Active'],
   init: function () {
     can.extend(this.attributes, CMS.Models.SystemOrProcess.attributes);
     this._super && this._super.apply(this, arguments);
     this.tree_view_options = $.extend({},
       CMS.Models.SystemOrProcess.tree_view_options, {
         // systems is a special case; can be imported to programs
-        footer_view: GGRC.mustache_path + '/base_objects/tree_footer.mustache',
         add_item_view: GGRC.mustache_path +
         (GGRC.infer_object_type(GGRC.page_object) === CMS.Models.Program ?
-          '/systems/tree_add_item.mustache' :
+          '/snapshots/tree_add_item.mustache' :
           '/base_objects/tree_add_item.mustache')
       });
     this.validateNonBlank('title');
@@ -153,15 +149,18 @@ CMS.Models.SystemOrProcess('CMS.Models.Process', {
   destroy: 'DELETE /api/processes/{id}',
   cache: can.getObject('cache', CMS.Models.SystemOrProcess, true),
   is_custom_attributable: true,
+  isRoleable: true,
   attributes: {},
   defaults: {
     title: '',
     url: '',
     status: 'Draft'
   },
+  sub_tree_view_options: {
+    default_filter: ['Risk'],
+  },
   mixins: ['ca_update'],
-  statuses: ['Draft', 'Final', 'Effective', 'Ineffective', 'Launched',
-    'Not Launched', 'In Scope', 'Not in Scope', 'Deprecated'],
+  statuses: ['Draft', 'Deprecated', 'Active'],
   init: function () {
     can.extend(this.attributes, CMS.Models.SystemOrProcess.attributes);
     this._super && this._super.apply(this, arguments);

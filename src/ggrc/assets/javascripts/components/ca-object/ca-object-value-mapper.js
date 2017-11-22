@@ -1,7 +1,12 @@
-/*!
- Copyright (C) 2016 Google Inc., authors, and contributors
+/*
+ Copyright (C) 2017 Google Inc., authors, and contributors
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
+
+import {
+  convertFromCaValue,
+  convertToCaValue,
+} from '../../plugins/utils/ca-utils';
 
 (function (_, can, GGRC) {
   'use strict';
@@ -14,7 +19,7 @@
         value: null,
         type: null,
         options: [],
-        placeholder: 'Please enter the value...'
+        placeholder: 'Please enter the value...',
       },
       value: null,
       valueObj: null,
@@ -25,7 +30,7 @@
           options: this.getOptions(),
           value: this.getValue(),
           type: this.getType(),
-          title: this.getTitle()
+          title: this.getTitle(),
         });
       },
       getOptions: function () {
@@ -40,63 +45,28 @@
         return type;
       },
       getValue: function () {
-        var type = this.attr('type');
-        var value = this.attr('value');
-        var valueObj = this.attr('valueObj');
-
-        if (type === 'checkbox') {
-          return value === '1';
-        }
-
-        if (type === 'input') {
-          if (!value) {
-            return null;
-          }
-          return value.trim();
-        }
-
-        if (type === 'person') {
-          if (valueObj) {
-            return valueObj;
-          }
-          return null;
-        }
-
-        if (type === 'dropdown') {
-          if (_.isNull(value) || _.isUndefined(value)) {
-            return '';
-          }
-        }
-        return value;
+        return convertFromCaValue(
+          this.attr('type'),
+          this.attr('value'),
+          this.attr('valueObj')
+        );
       },
       setValue: function (value) {
-        var type = this.attr('type');
-        value = this.formatValueByType(value, type);
-        this.attr('value', value);
+        this.attr('value',
+          convertToCaValue(
+            value,
+            this.attr('type')
+          )
+        );
       },
-      formatValueByType: function (value, type) {
-        if (type === 'checkbox') {
-          return value ? 1 : 0;
-        }
-
-        if (type === 'person') {
-          if (value && value instanceof can.Map) {
-            value = value.serialize();
-            return 'Person:' + value.id;
-          }
-          return 'Person:None';
-        }
-        return value || null;
-      }
     },
-
     events: {
       init: function () {
         this.scope.initInput();
       },
       '{scope.input} value': function (scope, ev, val) {
         this.scope.setValue(val);
-      }
-    }
+      },
+    },
   });
 })(window._, window.can, window.GGRC);

@@ -1,20 +1,24 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
-from ggrc.models.mixins import BusinessObject, Timeboxed, CustomAttributable
-from ggrc.models.object_owner import Ownable
+from ggrc.access_control.roleable import Roleable
+from ggrc.models.comment import Commentable
+from ggrc.models.mixins import (BusinessObject, LastDeprecatedTimeboxed,
+                                CustomAttributable, TestPlanned)
+from ggrc.models.object_document import PublicDocumentable
 from ggrc.models.object_person import Personable
 from ggrc.models.relationship import Relatable
 from ggrc.models.track_object_state import HasObjectState
-from ggrc.models.track_object_state import track_state_for_class
+from ggrc.fulltext.mixin import Indexed
 
 
-class AccessGroup(HasObjectState,
-                  CustomAttributable, Personable, Relatable,
-                  Timeboxed, Ownable, BusinessObject, db.Model):
-    __tablename__ = 'access_groups'
+class AccessGroup(Roleable, HasObjectState, PublicDocumentable, Commentable,
+                  CustomAttributable, Personable, Relatable, TestPlanned,
+                  LastDeprecatedTimeboxed, BusinessObject, Indexed, db.Model):
+  __tablename__ = 'access_groups'
 
-    _aliases = {"url": "Access Group URL"}
-
-track_state_for_class(AccessGroup)
+  _aliases = {
+      "document_url": None,
+      "document_evidence": None,
+  }

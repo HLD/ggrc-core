@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -46,7 +46,7 @@
           $(this).trigger('shown'); // this will reposition the modal stack
         })
         .on('delete-object', $.proxy(this.delete_object, this))
-        .draggable({handle: '.modal-header'});
+        .draggable({handle: '.modal-header', cancel: '.btn'});
     },
 
     doNothing: function (e) {
@@ -135,7 +135,8 @@
     },
 
     keypress_submit: function (e) {
-      if (e.which === 13 && !$(e.target).is('textarea')) {
+      if (e.which === 13 && !$(e.target).is('textarea') &&
+        !$(e.target).hasClass('create-form__input')) {
         if (!e.isDefaultPrevented()) {
           e.preventDefault();
           this.$form().submit();
@@ -158,7 +159,7 @@
       this.hide(e);
     },
 
-    hide: function (e) {
+    hide: function (e, verifyChanges) {
       var instance = this.instance;
       var pending;
       var hasPending;
@@ -169,22 +170,29 @@
       }
 
       // If the hide was initiated by the backdrop, check for dirty form data before continuing
-      if (e && $(e.target).is('.modal-backdrop,.fa-times')) {
+      // Same behavior if extra flag is sent
+      if (e && $(e.target).is('.modal-backdrop,.fa-times') || verifyChanges) {
         if ($(e.target).is('.disabled')) {
-            // In the case of a disabled modal backdrop, treat it like any other disabled data-dismiss,
-            //  i.e. do nothing.
+          // In the case of a disabled modal backdrop, treat it like any other disabled data-dismiss,
+          //  i.e. do nothing.
           e.stopPropagation();
           return;
         }
         if (instance) {
+          instance._backupStore()['-1'] = instance['-1'];
           changedInstance = instance.isDirty(true);
-          hasPending = GGRC.Utils.hasPending(instance);
+          if (!instance.id) {
+            hasPending = false;
+          } else {
+            hasPending = GGRC.Utils.hasPending(instance);
+          }
         }
         if (this.is_form_dirty() || changedInstance || hasPending) {
-            // Confirm that the user wants to lose the data prior to hiding
+          // Confirm that the user wants to lose the data prior to hiding
           GGRC.Controllers.Modals.confirm({
             modal_title: 'Discard Changes',
-            modal_description: 'Are you sure that you want to discard your changes?',
+            modal_description: 'Are you sure that you want' +
+            ' to discard your changes?',
             modal_confirm: 'Discard',
             skip_refresh: true
           }, function () {
@@ -192,10 +200,14 @@
             this.$element
               .find("[data-dismiss='modal'], [data-dismiss='modal-reset']")
               .trigger('click');
+            $(window).trigger('modal:dismiss', this.options);
             this.hide();
           }.bind(this));
           return;
         }
+
+        // trigger event if form is not dirty
+        $(window).trigger('modal:dismiss', this.options);
       }
 
       // Hide the modal like normal
@@ -207,7 +219,12 @@
         can.trigger(instance, 'modal:dismiss');
       }
       $.fn.modal.Constructor.prototype.hide.apply(this, [e]);
+      this.$element.trigger('modal:dismiss');
       this.$element.off('modal_form');
+    },
+
+    silentHide: function () {
+      $.fn.modal.Constructor.prototype.hide.call(this);
     },
 
     focus_first_input: function (ev) {
@@ -350,6 +367,7 @@
         Running: 'progress',
         Pending: 'progress'
       };
+      var textContainer;
       var $html;
       var gotMessage = _.some(_.values(flash), function (msg) {
         return !!msg;
@@ -375,6 +393,12 @@
       }
 
       for (type in flash) {
+        // data prop is reserved for mustache template data and
+        // we don't expect to have ajax:flash of a "data" type
+        if ( type === 'data' ) {
+          continue;
+        }
+
         if (flash[type]) {
           if (_.isString(flash[type])) {
             flash[type] = [flash[type]];
@@ -384,36 +408,50 @@
 
           $html = $('<div></div>');
           $html.addClass('alert').addClass('alert-' + flashClass);
+          textContainer = '<span class="content"></span>';
+
           if (flashClass !== 'progress') {
             $html.addClass('alert-autohide');
           }
-          $html.append('<a href="#" class="close" data-dismiss="alert">x</a>');
 
-          for (messageI in flash[type]) {
-            if (!flash[type].hasOwnProperty(messageI)) {
-              continue;
-            }
-            message = flash[type][messageI];
-            // Skip error codes. To force display use String(...) when
-            // triggering the flash.
-            if (_.isString(message)) {
-              addLink = message.indexOf('{reload_link}') > -1;
-              message = message.replace('{reload_link}', '');
-              $html.append($('<span></span>').text(message));
-              if (addLink) {
-                $html.removeClass('alert-autohide');
-                $link = $('<a href="javascript://">Show results</a>');
-                $link.on('click', function () {
-                  if (redirectLink) {
-                    $('html').addClass('no-js');
-                    window.location.href = redirectLink;
-                  }
-                  window.location.reload();
-                });
-                $html.append($link);
+          if ( _.isFunction(flash[type]) ) {
+            $html.append(flash[type](flash.data || {}));
+          } else {
+            for (messageI in flash[type]) {
+              if (!flash[type].hasOwnProperty(messageI)) {
+                continue;
+              }
+              message = flash[type][messageI];
+              // Skip error codes. To force display use String(...) when
+              // triggering the flash.
+              if (_.isString(message)) {
+                addLink = message.indexOf('{reload_link}') > -1;
+                message = message.replace('{reload_link}', '');
+                $html.append($(textContainer).text(message));
+                if (addLink) {
+                  $html.removeClass('alert-autohide');
+                  $link = $(`<a href="javascript://" class="reload-link">
+                                Show results
+                             </a>`);
+                  $link.on('click', function () {
+                    if (redirectLink) {
+                      $('html').addClass('no-js');
+                      window.location.href = redirectLink;
+                    }
+                    window.location.reload();
+                  });
+                  $html.append($link);
+                }
               }
             }
           }
+
+          $html.append(
+            '<a href="#" class="close" data-dismiss="alert">' +
+              '<i class="fa fa-times" aria-hidden="true"></i>' +
+            '</a>'
+          );
+
           $flashHolder.append($html);
         }
       }

@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 import datetime
@@ -6,6 +6,7 @@ from sqlalchemy.ext.declarative import declared_attr
 from ggrc import db
 from ggrc.models.deferred import deferred
 from ggrc.models.mixins import Base
+from ggrc.models import reflection
 
 
 class Context(Base, db.Model):
@@ -15,7 +16,7 @@ class Context(Base, db.Model):
   #  which we do not use for Context because indexing Context descriptions
   #  for fulltext search leads to undesirable results
   @declared_attr
-  def description(cls):
+  def description(cls):  # pylint: disable=no-self-argument
     return deferred(db.Column(db.Text), cls.__name__)
 
   name = deferred(db.Column(db.String(128), nullable=True), 'Context')
@@ -47,7 +48,10 @@ class Context(Base, db.Model):
             'related_object_type', 'related_object_id'),
     )
 
-  _publish_attrs = ['name', 'related_object', 'description']
+  _api_attrs = reflection.ApiAttributes('name',
+                                        'related_object',
+                                        'description')
+
   _sanitize_html = ['name', 'description']
   _include_links = []
 
@@ -57,7 +61,7 @@ class HasOwnContext(object):
   """
 
   @declared_attr
-  def contexts(cls):
+  def contexts(cls):  # pylint: disable=no-self-argument
     joinstr = 'and_(foreign(Context.related_object_id) == {type}.id, '\
               'foreign(Context.related_object_type) == "{type}")'
     joinstr = joinstr.format(type=cls.__name__)

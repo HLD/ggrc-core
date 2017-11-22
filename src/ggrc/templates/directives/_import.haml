@@ -1,4 +1,4 @@
--# Copyright (C) 2016 Google Inc.
+-# Copyright (C) 2017 Google Inc.
 -# Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 -extends "layouts/_widget_box.haml"
@@ -46,7 +46,7 @@
         .span12
           %input{ 'name': 'file', 'value': 'choose file' , 'type': 'file', 'accept': '.csv' }
           .import-buttons
-            %input{ 'value': 'Upload and Review', 'class': 'btn btn-large btn-info', 'type': 'submit' }
+            %input{ 'value': 'Upload and Review', 'class': 'btn btn-large btn-lightBlue', 'type': 'submit' }
 
       -if exception_message is defined and not exception_message.show_preview
         -include 'directives/import_errors.haml'

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -50,8 +50,6 @@
         ),
         destinations: Direct('Relationship', 'source', 'related_destinations'),
         sources: Direct('Relationship', 'destination', 'related_sources'),
-        documents: Proxy('Document', 'document',
-          'ObjectDocument', 'documentable', 'object_documents'),
         cycle_task_group_object_tasks: TypeFilter('related_objects',
           'CycleTaskGroupObjectTask')
       }
@@ -65,8 +63,6 @@
     var descriptor = {};
     var page_instance = GGRC.page_instance();
     var tree_widgets = GGRC.tree_view.base_widgets_by_type;
-    var treeViewDepth = 2;
-    var relatedObjectsOptions = [GGRC.Utils.getRelatedObjects(treeViewDepth)];
 
     _.each(_risk_assessments_object_types, function (type) {
       if (!type || !tree_widgets[type]) {
@@ -79,17 +75,16 @@
         risk_assessments: {
           widget_id: 'risk_assessments',
           widget_name: 'Risk Assessments',
-          content_controller: GGRC.Controllers.TreeView,
+          widgetType: 'treeview',
+          treeViewDepth: 3,
           content_controller_options: {
             add_item_view: GGRC.mustache_path +
               '/risk_assessments/tree_add_item.mustache',
             mapping: 'risk_assessments',
             parent_instance: page_instance,
             model: CMS.Models.RiskAssessment,
-            show_view: GGRC.mustache_path + '/risk_assessments/tree.mustache',
             draw_children: true,
-            allow_mapping: false,
-            child_options: relatedObjectsOptions
+            allow_mapping: false
           }
         }
       };
@@ -98,4 +93,4 @@
   };
 
   RiskAssessmentsExtension.init_mappings();
-})(this.can.$, this.CMS, this.GGRC);
+})(window.can.$, window.CMS, window.GGRC);

@@ -1,9 +1,9 @@
 /*!
- Copyright (C) 2016 Google Inc.
+ Copyright (C) 2017 Google Inc.
  Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
-(function (can) {
+(function (can, GGRC) {
   'use strict';
 
   can.Model.Cacheable('CMS.Models.TaskGroup', {
@@ -15,7 +15,6 @@
     create: 'POST /api/task_groups',
     update: 'PUT /api/task_groups/{id}',
     destroy: 'DELETE /api/task_groups/{id}',
-
     mixins: ['contactable'],
     permalink_options: {
       url: '<%= base.viewLink %>#task_group_widget/' +
@@ -35,9 +34,14 @@
 
     tree_view_options: {
       sort_property: 'sort_index',
-      header_view: GGRC.mustache_path + '/task_groups/tree_header.mustache',
-      footer_view: GGRC.mustache_path + '/base_objects/tree_footer.mustache',
-      add_item_view: GGRC.mustache_path + '/task_groups/tree_add_item.mustache'
+      attr_view: GGRC.mustache_path + '/task_groups/tree-item-attr.mustache',
+      add_item_view: GGRC.mustache_path + '/task_groups/tree_add_item.mustache',
+      mapper_attr_list: [
+        {attr_title: 'Summary', attr_name: 'title'},
+        {attr_title: 'Assignee', attr_name: 'assignee',
+          attr_sort_field: 'contact'}
+      ],
+      disable_columns_configuration: true
     },
 
     init: function () {
@@ -84,7 +88,7 @@
     update: 'PUT /api/task_group_tasks/{id}',
     destroy: 'DELETE /api/task_group_tasks/{id}',
 
-    mixins: ['contactable'],
+    mixins: ['contactable', 'timeboxed', 'accessControlList'],
     permalink_options: {
       url: '<%= base.viewLink %>#task_group_widget/' +
       'task_group/<%= instance.task_group.id %>',
@@ -93,34 +97,58 @@
     attributes: {
       context: 'CMS.Models.Context.stub',
       modified_by: 'CMS.Models.Person.stub',
-      task_group: 'CMS.Models.TaskGroup.stub',
-      start_date: 'date',
-      end_date: 'date'
+      task_group: 'CMS.Models.TaskGroup.stub'
+    },
+    tree_view_options: {
+      attr_view: GGRC.mustache_path +
+        '/task_group_tasks/tree-item-attr.mustache',
+      mapper_attr_list: [
+        {attr_title: 'Summary', attr_name: 'title'},
+      ],
+      disable_columns_configuration: true,
+      assigneeRoleName: 'Task Assignees',
     },
 
     init: function () {
       var that = this;
+      var assigneeRole = _.find(GGRC.access_control_roles, {
+        object_type: 'TaskGroupTask',
+        name: 'Task Assignees',
+      });
+
       if (this._super) {
         this._super.apply(this, arguments);
       }
       this.validateNonBlank('title');
-      this.validateNonBlank('contact');
-      this.validateContact(['_transient.contact', 'contact']);
+
+      // instance.attr('access_control_list')
+      //   .replace(...) doesn't raise change event
+      // that's why we subscribe on access_control_list.length
+      this.validate('access_control_list.length', function () {
+        var that = this;
+        var hasAssignee = assigneeRole && _.some(that.access_control_list, {
+          ac_role_id: assigneeRole.id,
+        });
+
+        if (!hasAssignee) {
+          return 'No valid contact selected for assignee';
+        }
+      });
 
       this.validate(['start_date', 'end_date'], function () {
         var that = this;
         var workflow = GGRC.page_instance();
         var datesAreValid = true;
+        var startDate = GGRC.Date.getDate(that.attr('start_date'));
+        var endDate = GGRC.Date.getDate(that.attr('end_date'));
 
         if (!(workflow instanceof CMS.Models.Workflow)) {
           return;
         }
 
         // Handle cases of a workflow with start and end dates
-        if (workflow.frequency === 'one_time') {
-          datesAreValid = that.start_date && that.end_date &&
-            that.start_date <= that.end_date;
-        }
+        datesAreValid = startDate && endDate &&
+          startDate <= endDate;
 
         if (!datesAreValid) {
           return 'Start and/or end date is invalid';
@@ -212,22 +240,6 @@
           return workflow.context.reify().refresh();
         });
       }
-    },
-
-    response_options_csv: can.compute(function (val) {
-      var isSet = val && val.length;
-      var responseOptions = this.attr('response_options');
-      var options = isSet ?
-        val.split(',') :
-        responseOptions;
-
-      if (isSet) {
-        this.attr('response_options', options.map(function (item) {
-          return item.trim();
-        }));
-      } else {
-        return options.join(', ');
-      }
-    })
+    }
   });
-})(window.can);
+})(window.can, window.GGRC);

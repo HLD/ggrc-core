@@ -1,9 +1,10 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """
 Test Program Creator role
 """
+import ddt
 
 from integration.ggrc import TestCase
 from ggrc.models import get_model
@@ -11,13 +12,15 @@ from ggrc.models import all_models
 from integration.ggrc.api_helper import Api
 from integration.ggrc.generator import Generator
 from integration.ggrc.generator import ObjectGenerator
+from integration.ggrc.models import factories
 
 
+@ddt.ddt
 class TestCreator(TestCase):
   """ TestCreator """
 
   def setUp(self):
-    TestCase.setUp(self)
+    super(TestCreator, self).setUp()
     self.generator = Generator()
     self.api = Api()
     self.object_generator = ObjectGenerator()
@@ -36,17 +39,19 @@ class TestCreator(TestCase):
   def test_admin_page_access(self):
     for role, code in (("creator", 403), ("admin", 200)):
       self.api.set_user(self.users[role])
-      self.assertEqual(self.api.tc.get("/admin").status_code, code)
+      self.assertEqual(self.api.client.get("/admin").status_code, code)
 
   def test_creator_can_crud(self):
     """ Test Basic create/read,update/delete operations """
     self.api.set_user(self.users["creator"])
+    creator_id = self.users["creator"].id
+    audit_id = factories.AuditFactory().id
     all_errors = []
     base_models = set([
         "Control", "DataAsset", "Contract",
         "Policy", "Regulation", "Standard", "Document", "Facility",
         "Market", "Objective", "OrgGroup", "Vendor", "Product",
-        "Clause", "System", "Process", "Issue", "Project", "AccessGroup"
+        "Clause", "System", "Process", "Project", "AccessGroup"
     ])
     for model_singular in base_models:
       try:
@@ -61,8 +66,12 @@ class TestCreator(TestCase):
                 "reference_url": "ref",
                 "contact": {
                     "type": "Person",
-                    "id": self.users["creator"].id,
+                    "id": creator_id,
                 },
+                "audit": {  # this is ignored on everything but Issues
+                    "id": audit_id,
+                    "type": "Audit",
+                }
             },
         })
         if response.status_code != 201:
@@ -85,21 +94,18 @@ class TestCreator(TestCase):
               "{} can retrieve object if not owner (collection)"
               .format(model_singular))
           continue
-        # Become an owner
-        response = self.api.post(all_models.ObjectOwner, {"object_owner": {
-            "person": {
-                "id": self.users['creator'].id,
-                "type": "Person",
-            }, "ownable": {
-                "type": model_singular,
-                "id": obj_id
-            }, "context": None}})
-        if response.status_code != 201:
-          all_errors.append("{} can't create owner {}.".format(
-              model_singular, response.status))
-          continue
 
         # Test GET when owner
+        acr = all_models.AccessControlRole.query.filter_by(
+            object_type=model_singular,
+            name="Admin"
+        ).first()
+        factories.AccessControlListFactory(
+            object_id=obj_id,
+            object_type=model_singular,
+            ac_role=acr,
+            person_id=creator_id
+        )
         response = self.api.get(model, obj_id)
         if response.status_code != 200:
           all_errors.append("{} can't GET object {}".format(
@@ -116,8 +122,8 @@ class TestCreator(TestCase):
               .format(model_singular))
           continue
       except:
-          all_errors.append("{} exception thrown".format(model_singular))
-          raise
+        all_errors.append("{} exception thrown".format(model_singular))
+        raise
     self.assertEqual(all_errors, [])
 
   def test_creator_search(self):
@@ -127,18 +133,25 @@ class TestCreator(TestCase):
         "regulation": {"title": "Admin regulation", "context": None},
     })
     self.api.set_user(self.users['creator'])
+    acr_id = all_models.AccessControlRole.query.filter_by(
+        object_type="Policy",
+        name="Admin"
+    ).first().id
     response = self.api.post(all_models.Policy, {
-        "policy": {"title": "Creator Policy", "context": None},
+        "policy": {
+            "title": "Creator Policy",
+            "context": None,
+            "access_control_list": [{
+                "person": {
+                    "id": self.users["creator"].id,
+                    "type": "Person",
+                },
+                "ac_role_id": acr_id,
+                "context": None
+            }],
+        },
     })
-    obj_id = response.json.get("policy").get("id")
-    self.api.post(all_models.ObjectOwner, {"object_owner": {
-        "person": {
-            "id": self.users['creator'].id,
-            "type": "Person",
-        }, "ownable": {
-            "type": "Policy",
-            "id": obj_id,
-        }, "context": None}})
+    response.json.get("policy").get("id")
     response, _ = self.api.search("Regulation,Policy")
     entries = response.json["results"]["entries"]
     self.assertEqual(len(entries), 1)
@@ -160,23 +173,6 @@ class TestCreator(TestCase):
     self.api.set_user(self.users['creator'])
     creator_count = self._get_count("Person")
     self.assertEqual(admin_count, creator_count)
-
-  def test_creator_cannot_be_owner(self):
-    """Test if creator cannot become owner of the object he has not created"""
-    self.api.set_user(self.users['admin'])
-    _, obj = self.generator.generate(all_models.Regulation, "regulation", {
-        "regulation": {"title": "Test regulation", "context": None},
-    })
-    self.api.set_user(self.users['creator'])
-    response = self.api.post(all_models.ObjectOwner, {"object_owner": {
-        "person": {
-            "id": self.users['creator'].id,
-            "type": "Person",
-        }, "ownable": {
-            "type": "Regulation",
-            "id": obj.id,
-        }, "context": None}})
-    self.assertEqual(response.status_code, 403)
 
   def test_relationships_access(self):
     """Check if creator cannot access relationship objects"""
@@ -210,9 +206,11 @@ class TestCreator(TestCase):
   def test_revision_access(self):
     """Check if creator can access the right revision objects."""
 
-    def gen(title):
+    def gen(title, extra_data=None):
+      section_content = {"title": title, "context": None}
+      section_content.update(**extra_data) if extra_data else None
       return self.generator.generate(all_models.Section, "section", {
-          "section": {"title": title, "context": None},
+          "section": section_content
       })[1]
 
     def check(obj, expected):
@@ -229,17 +227,48 @@ class TestCreator(TestCase):
 
     self.api.set_user(self.users["admin"])
     obj_1 = gen("Test Section 1")
-    obj_2 = gen("Test Section 2")
-
-    self.api.post(all_models.ObjectOwner, {"object_owner": {
-        "person": {
-            "id": self.users['creator'].id,
-            "type": "Person",
-        }, "ownable": {
-            "type": "Section",
-            "id": obj_2.id,
-        }, "context": None}})
 
     self.api.set_user(self.users["creator"])
+    acr_id = all_models.AccessControlRole.query.filter_by(
+        object_type="Section",
+        name="Admin"
+    ).first().id
+    linked_acl = {
+        "access_control_list": [{
+            "person": {
+                "id": self.users["creator"].id,
+                "type": "Person",
+            },
+            "ac_role_id": acr_id,
+            "context": None
+        }]
+    }
     check(obj_1, 0)
+    obj_2 = gen("Test Section 2", linked_acl)
+    obj2_acl = obj_2.access_control_list[0]
     check(obj_2, 1)
+    check(obj2_acl, 1)
+
+  @ddt.data("creator", "admin")
+  def test_count_type_in_accordion(self, glob_role):
+    """Return count of Persons in DB for side accordion."""
+    self.api.set_user(self.users[glob_role])
+    ocordion_api_person_count_link = (
+        "/search?"
+        "q=&types=Program%2CWorkflow_All%2C"
+        "Audit%2CAssessment%2CIssue%2CRegulation%2C"
+        "Policy%2CStandard%2CContract%2CClause%2CSection%2CControl%2C"
+        "Objective%2CPerson%2COrgGroup%2CVendor%2CAccessGroup%2CSystem%2C"
+        "Process%2CDataAsset%2CProduct%2CProject%2CFacility%2C"
+        "Market%2CRisk%2CThreat&counts_only=true&"
+        "extra_columns=Workflow_All%3DWorkflow%2C"
+        "Workflow_Active%3DWorkflow%2CWorkflow_Draft%3D"
+        "Workflow%2CWorkflow_Inactive%3DWorkflow&contact_id=1&"
+        "extra_params=Workflow%3Astatus%3DActive%3BWorkflow_Active"
+        "%3Astatus%3DActive%3BWorkflow_Inactive%3Astatus%3D"
+        "Inactive%3BWorkflow_Draft%3Astatus%3DDraft"
+    )
+    resp = self.api.client.get(ocordion_api_person_count_link)
+    self.assertIn("Person", resp.json["results"]["counts"])
+    self.assertEqual(all_models.Person.query.count(),
+                     resp.json["results"]["counts"]["Person"])

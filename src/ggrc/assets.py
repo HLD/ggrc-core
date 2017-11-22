@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Manage "static" assets
@@ -44,6 +44,9 @@ environment.debug = settings.DEBUG_ASSETS
 if settings.DEBUG:
   environment.url_expire = False
 
+# Don't store webassets cache
+environment.cache = False
+
 environment.updater = webassets.updater.TimestampUpdater()
 
 # Read asset listing from YAML file
@@ -69,7 +72,7 @@ if not settings.AUTOBUILD_ASSETS:
 environment.url = '/static'
 environment.directory = os.path.join(settings.MODULE_DIR, 'static')
 
-environment.load_path = [settings.THIRD_PARTY_DIR, settings.BOWER_DIR]
+environment.load_path = [settings.THIRD_PARTY_DIR]
 
 _per_module_load_suffixes = [
     'assets/javascripts',
@@ -79,8 +82,7 @@ _per_module_load_suffixes = [
     'assets/vendor/remoteipart/vendor/assets/javascripts',
     'assets/stylesheets',
     'assets/vendor/stylesheets',
-    'assets/js_specs',
-    'assets/mockups',
+    'assets/js_specs'
 ]
 
 for module_load_base in module_load_paths:
@@ -124,44 +126,9 @@ version_suffix = '-%(version)s'
 if settings.DEBUG:
   version_suffix = ''
 
-environment.register("dashboard-js", webassets.Bundle(
-    *asset_paths['dashboard-js-files'],
-    # filters='jsmin',
-    output='dashboard' + version_suffix + '.js'))
-
-environment.register("app-init-js", webassets.Bundle(
-    *asset_paths['app-init-files'],
-    # filters='jsmin',
-    output='app-init' + version_suffix + '.js'))
-
 environment.register("dashboard-js-templates", webassets.Bundle(
     *asset_paths['dashboard-js-template-files'],
     filters=MustacheFilter,
     output='dashboard-templates' + version_suffix + '.js',
     # Always keep `debug` False here, since raw mustache is not valid JS
     debug=False))
-
-environment.register("mockup-js-templates", webassets.Bundle(
-    *asset_paths['mockup-js-template-files'],
-    filters=MustacheFilter,
-    output='mockup-templates' + version_suffix + '.js',
-    # Always keep `debug` False here, since raw mustache is not valid JS
-    debug=False))
-
-environment.register("dashboard-css", webassets.Bundle(
-    *asset_paths['dashboard-css-files'],
-    output='dashboard' + version_suffix + '.css'))
-
-environment.register("mockup-js", webassets.Bundle(
-    *asset_paths['mockup-js-files'],
-    # filters='jsmin',
-    output='mockup.js'))
-
-if settings.ENABLE_JASMINE:
-  environment.register("dashboard-js-specs", webassets.Bundle(
-      *asset_paths['dashboard-js-spec-files'],
-      output='dashboard' + version_suffix + '-specs.js'))
-
-  environment.register("dashboard-js-spec-helpers", webassets.Bundle(
-      *asset_paths['dashboard-js-spec-helpers'],
-      output='dashboard' + version_suffix + '-spec-helpers.js'))

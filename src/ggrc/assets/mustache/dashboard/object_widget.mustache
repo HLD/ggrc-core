@@ -1,5 +1,5 @@
 {{!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
 
@@ -21,40 +21,61 @@
     </header>
   {{/if_equals}}
 
-  {{#if_equals widget_id "custom_attribute"}}
   {{^is_dashboard}}
-    <header class="header">
-      <h2>
-        <i class="fa fa-workflow color"></i>
-        {{{widget_name}}}
-      </h2>
-    </header>
-  {{/is_dashboard}}
-  {{/if_equals}}
+    {{#if_equals widget_id "custom_attribute"}}
+      <header class="header">
+        <h2>
+          <i class="fa fa-workflow color"></i>
+          {{{widget_name}}}
+        </h2>
+      </header>
+    {{/if_equals}}
 
-  {{#if_equals widget_id "events_list"}}
-  {{^is_dashboard}}
-    <header class="header">
-      <h2>
-        <i class="fa-history"></i>
-        {{{widget_name}}}
-      </h2>
-    </header>
-  {{/is_dashboard}}
-  {{/if_equals}}
+    {{#if_equals widget_id "events_list"}}
+      <header class="header">
+        <h2>
+          <i class="fa-history"></i>
+          {{{widget_name}}}
+        </h2>
+      </header>
+    {{/if_equals}}
 
-  {{#if_equals widget_id "info"}}
-  {{^is_dashboard}}
-    <header class="header">
-      <h2>
-        <i class="{{widget_icon}}"></i>
-        {{{widget_name}}}
-      </h2>
-    </header>
+    {{#if_equals widget_id "info"}}
+      <header class="header">
+        <h2>
+          <i class="{{widget_icon}}"></i>
+          {{{widget_name}}}
+        </h2>
+      </header>
+    {{/if_equals}}
+
+    {{#if_equals widget_id "Summary"}}
+      <header class="header">
+        <h2>
+          <i class="{{widget_icon}}"></i>
+          {{{widget_name}}}
+        </h2>
+      </header>
+    {{/if_equals}}
   {{/is_dashboard}}
-  {{/if_equals}}
 
   <section class="content">
-    {{{widget_initial_content}}}
+
+    {{#if_equals widgetType 'treeview'}}
+      <tree-widget-container {model}="model"
+                             {limit-depth-tree}="treeViewDepth"
+                             {options}="content_controller_options"
+      ></tree-widget-container>
+    {{else}}
+      {{{widget_initial_content}}}
+
+      {{#add_to_current_scope showSpinner=true}}
+        <spinner
+          size="large"
+          extra-css-class="initial-spinner"
+          toggle="showSpinner"
+        ></spinner>
+      {{/add_to_current_scope}}
+    {{/if_equals}}
   </section>
 {{!/section}}

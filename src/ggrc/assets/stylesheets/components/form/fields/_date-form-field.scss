@@ -1,0 +1,67 @@
+/*
+ * Copyright (C) 2017 Google Inc.
+ * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+ */
+
+date-form-field {
+  display: block;
+
+  .input-wrapper {
+    datepicker {
+      .datepicker__input-wrapper {
+        input {
+          background: $white;
+          margin: 0;
+          width: 100%;
+          box-sizing: border-box;
+          height: 28px;
+          line-height: 28px;
+          border-radius: 2px;
+          padding-left: 24px;
+
+          &[readonly] {
+            background: $white;
+            border-color: #ccc;
+            cursor: pointer;
+          }
+        }
+
+        .fa-calendar {
+          font-size: 14px;
+          top: 6px;
+          left: 7px;
+        }
+
+        .datepicker__remove-value {
+          top: 6px;
+        }
+      }
+    }
+  }
+  &.inline__content-input {
+    .datepicker__calendar {
+      &.datepicker__calendar--top {
+        bottom: auto;
+      }
+    }
+    .input-wrapper {
+      datepicker {
+        .datepicker__input-wrapper {
+          input {
+            border-color: #ccc;
+            box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075);
+            transition: border linear .2s, box-shadow linear .2s;
+            background: #fff;
+
+            &[readonly] {
+
+              &:focus {
+                border-color: #ccc;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

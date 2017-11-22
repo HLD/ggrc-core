@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -9,6 +9,13 @@
   width: 100%;
   top: 0;
   z-index: zIndex(tree-spinner) !important;
+}
+
+.tree-no-results-message {
+  opacity: 0.7;
+  text-align: center;
+  padding: 250px 0;
+  border: 2px solid $warmGray;
 }
 
 ul.new-tree {
@@ -43,10 +50,9 @@ ul.new-tree {
     }
   }
   .openclose {
-    width: 55px;
     cursor: pointer;
     &__empty {
-      width: 35px;
+      width: 5px;
     }
   }
   .select {
@@ -145,17 +151,42 @@ ul.new-tree {
       padding: 6px 0 11px 0;
       margin: 0 10px;
       border-bottom: 1px solid $itemBorder;
+
     }
     > .item-main {
       background: $white;
       > .item-wrap {
-        margin: 0 10px;
+        padding: 0 10px;
         border-bottom: 1px solid $itemBorder;
         .openclose,
         .select {
           padding: 6px 0;
         }
+        &:hover {
+          tree-item-extra-info {
+            i {
+              visibility: visible;
+            }
+          }
+
+          .tree-item-actions {
+            visibility: visible;
+          }
+        }
+
+        &.flex-box {
+          > .select {
+            width: 100%;
+            margin-left: 10px;
+          }
+        }
       }
+    }
+    > .snapshot-object {
+       background: $snapshotBgnd;
+       border: 1px solid $shapshotBorder;
+       border-radius: 2px;
+       margin: 2px 0;
     }
     &:last-child {
       > .item-wrap {
@@ -360,10 +391,8 @@ ul.new-tree {
       }
     }
     .inner-tree {
-      border-top: 1px solid $itemBorder;
       margin-left: 38px;
       li.tree-item {
-        @include scale(1);
         @include opacity(1);
         @include box-shadow(none);
         margin-top: 0;
@@ -417,6 +446,10 @@ ul.new-tree {
     margin-bottom: 0;
     max-height: 240px;
     overflow-y: auto;
+    .task-comments & {
+      max-height: none;
+      overflow-y: visible;
+    }
     & .tier-2-info {
       padding: 14px 10px 0 10px;
       .tier-2-info-content {
@@ -435,15 +468,15 @@ ul.new-tree {
 
 .show-details {
   float: right;
-  padding-right: 4px;
-  margin-left: 10px;
+  margin-left: 8px;
   a {
     display: inline-block;
     line-height: 16px;
     i {
-      @include opacity(0.25);
-      @include transition(opacity 0.2s ease);
+      opacity: 0.25;
+      transition: opacity 0.2s ease;
       color: $black;
+
       ul.new-tree & {
         margin-top: 0;
       }
@@ -451,7 +484,7 @@ ul.new-tree {
     &:hover {
       text-decoration: none;
       i {
-        @include opacity(1);
+        opacity: 1;
       }
     }
   }
@@ -463,7 +496,8 @@ ul.new-tree {
 
 .tier-2-info-content {
   @extend %clearfix;
-  padding: 0 10px 0 32px;
+  border-top: 1px solid $itemBorder;
+  padding: 0 0 0 32px;
   position: relative;
   font-size: 13px;
   line-height: 20px;
@@ -641,6 +675,10 @@ ul.new-tree {
   &:hover {
     @include opacity(1);
     text-decoration:none;
+  }
+  &.person-tooltip-trigger {
+    @include opacity(1);
+    font-weight: normal;
   }
   &.relevant-action {
     @include opacity(0.5);

@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from collections import OrderedDict
@@ -13,7 +13,7 @@ the AppEngine instance
 
 class LocalCache(Cache):
   """ LocalCache inherits from cache and it provides caching mechanism that is
-      local to a particular gGRC instance
+      local to a particular GGRC instance
 
       Attributes:
         cache_entries: Ordered dictionary containing resource id as key and

@@ -1,16 +1,16 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
 .menu {
   @extend %reset-list;
   @extend %clearfix;
-  position: absolute;
-  right: 0px;
   margin-right: 40px;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
   li {
-    float:left;
     color: $black;
     line-height: 47px;
     font-size: 12px;
@@ -20,9 +20,8 @@
       font-weight: bold;
       line-height: 16px;
       text-align: center;
-      width: 14px;
       height: 16px;
-      padding: 0 2px 0 1px;
+      padding: 0 5px;
       display: inline-block;
     }
     &.user {
@@ -31,6 +30,33 @@
         left: auto;
         right: 0;
       }
+    }
+    .search {
+      color: $white;
+      font-weight: normal;
+      margin-right: 10px;
+      &:hover {
+        color: $white;
+        background-color: $lightBlue;
+      }
+      i {
+        color: $white;
+        opacity: 1;
+        font-size: 14px;
+      }
+    }
+    .user-email {
+      padding: 0 10px;
+      line-height: 35px;
+    }
+    > a.export-btn,
+    > a.admin-btn,
+    #page-help {
+      border-top: 1px solid $headerBgnd;
+      padding-top: 5px;
+    }
+    > a.nav-logout {
+      padding-top: 5px;
     }
   }
   a {
@@ -54,7 +80,7 @@
     @include border-radius(0);
     min-width: 210px;
     float: none;
-    padding: 5px 0;
+    padding: 5px 0 0 0;
     margin-top: 6px;
     text-transform: none;
     li {
@@ -94,13 +120,17 @@
       }
     }
   }
+  .notify-wrap {
+    margin-top: 0px;
+    margin-bottom: 0px;
+  }
 }
 
 small {
   &.count {
     @include border-radius(4px);
     background: #777;
-    .critical & {
+    &.critical {
       background: $error;
     }
     text-align: center;

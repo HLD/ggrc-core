@@ -1,23 +1,25 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Custom attribute definition module"""
 
+from cached_property import cached_property
 import flask
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import validates
 from sqlalchemy.sql.schema import UniqueConstraint
 
-import ggrc.models
 from ggrc import db
-from ggrc.utils import benchmark
+from ggrc.models.mixins import attributevalidator
 from ggrc.models import mixins
-from ggrc.models.reflection import AttributeInfo
 from ggrc.models.custom_attribute_value import CustomAttributeValue
+from ggrc.access_control import role as acr
 from ggrc.models.exceptions import ValidationError
+from ggrc.models import reflection
 
 
-class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
+class CustomAttributeDefinition(attributevalidator.AttributeValidator,
+                                mixins.Base, mixins.Titled, db.Model):
   """Custom attribute definition model.
 
   Attributes:
@@ -37,7 +39,14 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
   placeholder = db.Column(db.String)
 
   attribute_values = db.relationship('CustomAttributeValue',
-                                     backref='custom_attribute')
+                                     backref='custom_attribute',
+                                     cascade='all, delete-orphan')
+
+  @cached_property
+  def inflector_model_name_dict(self):  # pylint: disable=no-self-use
+    from ggrc.models import all_models
+    return {m._inflector.table_singular: m.__name__
+            for m in all_models.all_models}
 
   @property
   def definition_attr(self):
@@ -46,6 +55,17 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
   @property
   def definition(self):
     return getattr(self, self.definition_attr)
+
+  @property
+  def value_mapping(self):
+    return self.ValidTypes.DEFAULT_VALUE_MAPPING.get(self.attribute_type) or {}
+
+  @property
+  def default_value(self):
+    return self.ValidTypes.DEFAULT_VALUE.get(self.attribute_type)
+
+  def get_indexed_value(self, value):
+    return self.value_mapping.get(value, value)
 
   @definition.setter
   def definition(self, value):
@@ -61,7 +81,7 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
                        name='uq_custom_attribute'),
       db.Index('ix_custom_attributes_title', 'title'))
 
-  _include_links = _publish_attrs = [
+  _include_links = [
       'definition_type',
       'definition_id',
       'attribute_type',
@@ -70,6 +90,14 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
       'mandatory',
       'helptext',
       'placeholder',
+  ]
+
+  _api_attrs = reflection.ApiAttributes(*_include_links)
+
+  _sanitize_html = [
+      "multi_choice_options",
+      "helptext",
+      "placeholder",
   ]
 
   _reserved_names = {}
@@ -104,6 +132,21 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
     CHECKBOX = "Checkbox"
     DATE = "Date"
     MAP = "Map"
+
+    DEFAULT_VALUE = {
+        CHECKBOX: 0,
+        RICH_TEXT: "",
+        TEXT: "",
+    }
+
+    DEFAULT_VALUE_MAPPING = {
+        CHECKBOX: {
+            True: "Yes",
+            False: "No",
+            "0": "No",
+            "1": "Yes",
+        },
+    }
 
   class MultiChoiceMandatoryFlags(object):
     """Enum representing flags in multi_choice_mandatory bitmaps."""
@@ -157,50 +200,6 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
 
     return value
 
-  @classmethod
-  def _get_reserved_names(cls, definition_type):
-    """Get a list of all attribute names in all objects.
-
-    On first call this function computes all possible names that can be used by
-    any model and stores them in a static frozen set. All later calls just get
-    this set.
-
-    Returns:
-      frozen set containing all reserved attribute names for the current
-      object.
-    """
-    # pylint: disable=protected-access
-    # The _inflector is a false positive in our app.
-    with benchmark("Generate a list of all reserved attribute names"):
-      if not cls._reserved_names.get(definition_type):
-        definition_map = {model._inflector.table_singular: model
-                          for model in ggrc.models.all_models.all_models}
-        definition_model = definition_map.get(definition_type)
-        if not definition_model:
-          raise ValueError("Invalid definition type")
-
-        aliases = AttributeInfo.gather_aliases(definition_model)
-        cls._reserved_names[definition_type] = frozenset(
-            (value["display_name"] if isinstance(
-                value, dict) else value).lower()
-            for value in aliases.values() if value
-        )
-      return cls._reserved_names[definition_type]
-
-  @classmethod
-  def _get_global_cad_names(cls, definition_type):
-    """Get names of global cad for a given object."""
-    definition_types = [definition_type]
-    if definition_type == "assessment_template":
-      definition_types.append("assessment")
-    if not getattr(flask.g, "global_cad_names", set()):
-      query = db.session.query(cls.title, cls.id).filter(
-          cls.definition_type.in_(definition_types),
-          cls.definition_id.is_(None)
-      )
-      flask.g.global_cad_names = {name.lower(): id_ for name, id_ in query}
-    return flask.g.global_cad_names
-
   def validate_assessment_title(self, name):
     """Check assessment title uniqueness.
 
@@ -231,19 +230,22 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
       flask.g.template_cad_names = {cad.title.lower() for cad in query}
 
     if name in flask.g.template_cad_names:
-      raise ValueError("Invalid Custom attribute name.")
+      raise ValueError(u"Local custom attribute '{}' "
+                       u"already exists for this object type."
+                       .format(name))
 
   @validates("title", "definition_type")
   def validate_title(self, key, value):
     """Validate CAD title/name uniqueness.
 
     Note: title field is used for storing CAD names.
-    CAD names need to follow 3 uniqueness rules:
-      1) names must not match any attribute name on any existing object.
+    CAD names need to follow 4 uniqueness rules:
+      1) Names must not match any attribute name on any existing object.
       2) Object level CAD names must not match any global CAD name.
       3) Object level CAD names can clash, but not for the same Object
          instance. This means we can have two CAD with a name "my cad", with
          different attributable_id fields.
+      4) Names must not match any existing custom attribute role name
 
     Third rule is handled by the database with unique key uq_custom_attribute
     (`definition_type`,`definition_id`,`title`).
@@ -271,11 +273,20 @@ class CustomAttributeDefinition(mixins.Base, mixins.Titled, db.Model):
       return value
 
     if name in self._get_reserved_names(definition_type):
-      raise ValueError("Invalid Custom attribute name.")
+      raise ValueError(u"Attribute '{}' is reserved for this object type."
+                       .format(name))
 
     if (self._get_global_cad_names(definition_type).get(name) is not None and
             self._get_global_cad_names(definition_type).get(name) != self.id):
-      raise ValueError("Invalid Custom attribute name.")
+      raise ValueError(u"Global custom attribute '{}' "
+                       u"already exists for this object type"
+                       .format(name))
+    model_name = self.inflector_model_name_dict[definition_type]
+    acrs = {i.lower() for i in acr.get_custom_roles_for(model_name).values()}
+    if name in acrs:
+      raise ValueError(u"Custom Role with a name of '{}' "
+
+                       u"already existsfor this object type".format(name))
 
     if definition_type == "assessment":
       self.validate_assessment_title(name)
@@ -288,7 +299,7 @@ class CustomAttributeMapable(object):
   # because this is a mixin
 
   @declared_attr
-  def related_custom_attributes(self):
+  def related_custom_attributes(cls):  # pylint: disable=no-self-argument
     """CustomAttributeValues that directly map to this object.
 
     Used just to get the backrefs on the CustomAttributeValue object.
@@ -299,8 +310,8 @@ class CustomAttributeMapable(object):
     return db.relationship(
         'CustomAttributeValue',
         primaryjoin=lambda: (
-            (CustomAttributeValue.attribute_value == self.__name__) &
-            (CustomAttributeValue.attribute_object_id == self.id)),
+            (CustomAttributeValue.attribute_value == cls.__name__) &
+            (CustomAttributeValue.attribute_object_id == cls.id)),
         foreign_keys="CustomAttributeValue.attribute_object_id",
-        backref='attribute_{0}'.format(self.__name__),
+        backref='attribute_{0}'.format(cls.__name__),
         viewonly=True)

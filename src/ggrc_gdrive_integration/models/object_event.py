@@ -1,10 +1,11 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from sqlalchemy import orm
 
 from ggrc import db
 from ggrc.models.mixins import Base
+from ggrc.models import reflection
 
 
 class ObjectEvent(Base, db.Model):
@@ -30,11 +31,11 @@ class ObjectEvent(Base, db.Model):
         else None
     return setattr(self, self.eventable_attr, value)
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'event_id',
       'calendar_id',
       'eventable',
-  ]
+  )
 
   @classmethod
   def eager_query(cls):
@@ -61,9 +62,9 @@ class Eventable(object):
       )
     cls.object_events = make_object_events(cls)
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'object_events',
-  ]
+  )
 
   @classmethod
   def eager_query(cls):

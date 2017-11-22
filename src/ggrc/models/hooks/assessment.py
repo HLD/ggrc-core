@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """
@@ -7,238 +7,216 @@
   We are applying assessment template properties and make
   new relationships and custom attributes
 """
-
+import logging
 from itertools import izip
+from collections import defaultdict
+
+
+from sqlalchemy import orm
 
 from ggrc import db
 from ggrc.login import get_current_user_id
 from ggrc.models import all_models
 from ggrc.models import Assessment
-from ggrc.models import Person
-from ggrc.models import Relationship
-from ggrc.services.common import Resource
+from ggrc.models import Snapshot
+from ggrc.models.hooks import common
+from ggrc.services import signals
+from ggrc.access_control import role
+
+logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
 def init_hook():
   """ Initialize hooks"""
   # pylint: disable=unused-variable
-  @Resource.collection_posted.connect_via(Assessment)
+  @signals.Restful.collection_posted.connect_via(Assessment)
   def handle_assessment_post(sender, objects=None, sources=None):
     # pylint: disable=unused-argument
     """Apply custom attribute definitions and map people roles
     when generating Assessmet with template"""
-    for obj, src in izip(objects, sources):
-      src_obj = src.get("object")
-      audit = src.get("audit")
-      program = src.get("program")
-      map_assessment(obj, src_obj)
-      map_assessment(obj, audit)
-      # The program may also be set as the src_obj. If so then it should not be
-      # mapped again.
-      if (src_obj and program and
-          (src_obj["id"] != program["id"] or
-           src_obj["type"] != program["type"])):
-        map_assessment(obj, program)
+    db.session.flush()
 
-      if not src.get("_generated"):
+    audit_ids = []
+    template_ids = []
+    snapshot_ids = []
+
+    for src in sources:
+      snapshot_ids.append(src.get('object', {}).get('id'))
+      audit_ids.append(src.get('audit', {}).get('id'))
+      template_ids.append(src.get('template', {}).get('id'))
+
+    snapshot_cache = {
+        s.id: s for s in Snapshot.query.options(
+            orm.undefer_group('Snapshot_complete'),
+            orm.Load(Snapshot).joinedload(
+                "revision"
+            ).undefer_group(
+                'Revision_complete'
+            )
+        ).filter(
+            Snapshot.id.in_(snapshot_ids)
+        )
+    }
+    template_cache = {
+        t.id: t for t in all_models.AssessmentTemplate.query.options(
+            orm.undefer_group('AssessmentTemplate_complete'),
+        ).filter(
+            all_models.AssessmentTemplate.id.in_(template_ids)
+        )
+    }
+    audit_cache = {
+        a.id: a for a in all_models.Audit.query.options(
+            orm.undefer_group('Audit_complete'),
+        ).filter(
+            all_models.Audit.id.in_(audit_ids)
+        )
+    }
+
+    for assessment, src in izip(objects, sources):
+      snapshot_dict = src.get("object") or {}
+      common.map_objects(assessment, snapshot_dict)
+      common.map_objects(assessment, src.get("audit"))
+      snapshot = snapshot_cache.get(snapshot_dict.get('id'))
+      if not src.get("_generated") and not snapshot:
         continue
+      template = template_cache.get(src.get("template", {}).get("id"))
+      audit = audit_cache[src["audit"]["id"]]
+      relate_assignees(assessment, snapshot, template, audit)
+      relate_ca(assessment, template)
+      assessment.title = u'{} assessment for {}'.format(
+          snapshot.revision.content['title'],
+          audit.title,
+      )
+      if not template:
+        continue
+      if template.test_plan_procedure:
+        assessment.test_plan = snapshot.revision.content['test_plan']
+      else:
+        assessment.test_plan = template.procedure_description
+      if template.template_object_type:
+        assessment.assessment_type = template.template_object_type
 
-      related = {
-          "template": get_by_id(src.get("template")),
-          "obj": get_by_id(src.get("object")),
-          "audit": get_by_id(src.get("audit")),
-      }
-      relate_assignees(obj, related)
-      relate_ca(obj, related)
-
-
-def map_assessment(assessment, obj):
-  """Creates a relationship between an assessment and an object. This also
-  generates automappings. Fails silently if obj dict does not have id and type
-  keys.
-
-  Args:
-    assessment (models.Assessment): The assessment model
-    obj (dict): A dict with `id` and `type`.
-  Returns:
-    None
-  """
-  obj = obj or {}
-  if 'id' not in obj or 'type' not in obj:
-    return
-  rel = Relationship(**{
-      "source": assessment,
-      "destination_id": obj["id"],
-      "destination_type": obj["type"],
-      "context": assessment.context,
-  })
-  db.session.add(rel)
+  @signals.Restful.model_put.connect_via(Assessment)
+  def handle_assessment_put(sender, obj=None, src=None, service=None):
+    # pylint: disable=unused-argument
+    common.ensure_field_not_changed(obj, "audit")
 
 
-def get_by_id(obj):
-  """Get object instance by id"""
-  if not obj:
-    return
+def generate_assignee_relations(assessment,
+                                assignee_ids,
+                                verifier_ids,
+                                creator_ids):
+  """Generates db relations to assessment for sent role ids.
 
-  model = get_model_query(obj["type"])
-  return model.get(obj["id"])
-
-
-def get_model_query(model_type):
-  """Get model query"""
-  model = getattr(all_models, model_type, None)
-  return db.session.query(model)
-
-
-def get_value(people_group, audit, obj, template=None):
-  """Return the people related to an Audit belonging to the given role group.
-
-  Args:
-    people_group: (string) the name of the group of people to return,
-      e.g. "assessors"
-    template: (ggrc.models.AssessmentTemplate) a template to take into
-      consideration
-    audit: (ggrc.models.Audit) an audit instance
-    obj: an object related to `audit`, can be anything that can be mapped
-      to an Audit, e.g. Control, Issue, Facility, etc.
-  Returns:
-    Either a Person object, a list of Person objects, or None if no people
-    matching the criteria are found.
-  """
-  auditors = (
-      user_role.person for user_role in audit.context.user_roles
-      if user_role.role.name == u"Auditor"
-  )
-
-  if not template:
-    if people_group == "creator":
-      # don't use get_current_user because that returns a proxy
-      return Person.query.get(get_current_user_id())
-    elif people_group == "assessors":
-      return list(auditors)
-
-    return None
-
-  types = {
-      "Object Owners": [
-          owner.person for owner in getattr(obj, 'object_owners', None)
-      ],
-      "Audit Lead": getattr(audit, 'contact', None),
-      "Primary Contact": getattr(obj, 'contact', None),
-      "Secondary Contact": getattr(obj, 'secondary_contact', None),
-      "Primary Assessor": getattr(obj, 'principal_assessor', None),
-      "Secondary Assessor": getattr(obj, 'secondary_assessor', None),
-  }
-  people = template.default_people.get(people_group)
-  if not people:
-    return None
-
-  if isinstance(people, list):
-    return [get_by_id({
-        'type': 'Person',
-        'id': person_id
-    }) for person_id in people]
-
-  # only consume the generator if it will be used in the return value
-  if people == u"Auditors":
-    types[u"Auditors"] = list(auditors)
-
-  return types.get(people)
-
-
-def assign_people(assignees, assignee_role, assessment, relationships):
-  """Create a list of people with roles
-
-      Args:
-        assignees (list of model instances): List of people
-        assignee_role (string): It can be either Assessor or Verifier
+    Args:
         assessment (model instance): Assessment model
-        relationships (list): List relationships between assignees and
-                              assessment with merged AssigneeType's
+        assignee_ids (list): list of person ids
+        verifier_ids (list): list of person ids
+        creator_ids (list): list of person ids
   """
-  assignees = assignees if isinstance(assignees, list) else [assignees]
-  assignees = [assignee for assignee in assignees if assignee is not None]
-
-  if not assignees and assignee_role != "Verifier":
-    assignees.append(assessment.modified_by)
-
-  for assignee in assignees:
-    rel = (val for val in relationships if val["source"] == assignee)
-    rel = next(rel, None)
-    if rel:
-      values = rel["attrs"]["AssigneeType"].split(",")
-      values.append(assignee_role)
-      rel["attrs"]["AssigneeType"] = ",".join(set(values))
-    else:
-      relationships.append(
-          get_relationship_dict(assignee, assessment, assignee_role))
-
-
-def get_relationship_dict(source, destination, role):
-  """ Returns relationship object with Assignee Type"""
-  return {
-      "source": source,
-      "destination": destination,
-      "context": destination.context,
-      "attrs": {
-          "AssigneeType": role,
-      },
-  }
+  people = set(assignee_ids + verifier_ids + creator_ids)
+  person_dict = {i.id: i for i in all_models.Person.query.filter(
+      all_models.Person.id.in_(people)
+  )}
+  for person_id in people:
+    person = person_dict.get(person_id)
+    if person is None:
+      continue
+    roles = []
+    if person_id in assignee_ids:
+      roles.append("Assessor")
+    if person_id in verifier_ids:
+      roles.append("Verifier")
+    if person_id in creator_ids:
+      roles.append("Creator")
+    rel = all_models.Relationship(
+        source=person,
+        destination=assessment,
+        context=assessment.context,
+    )
+    rel.attrs = {"AssigneeType": ",".join(roles)}
+    db.session.add(rel)
 
 
-def relate_assignees(assessment, related):
+def get_people_ids_based_on_role(assignee_role,
+                                 default_role,
+                                 template_settings,
+                                 acl_dict):
+  """Get people_ids base on role and template settings."""
+  if assignee_role not in template_settings:
+    return []
+  template_role = template_settings[assignee_role]
+  if isinstance(template_role, list):
+    return template_role
+  return acl_dict.get(template_role, acl_dict.get(default_role)) or []
+
+
+def generate_role_object_dict(snapshot, audit):
+  """Generate roles dict for sent snapshot and audit.
+
+  returns dict of roles with key as role name and list of people ids as values.
+  """
+
+  acr_dict = role.get_custom_roles_for(snapshot.child_type)
+  acl_dict = defaultdict(list)
+  # populated content should have access_control_list
+  for acl in snapshot.revision.content["access_control_list"]:
+    acl_dict[acr_dict[acl["ac_role_id"]]].append(acl["person_id"])
+  # populate Access Control List by generated role from the related Audit
+  acl_dict["Audit Lead"].append(audit.contact_id)
+  acl_dict["Auditors"].extend([user_role.person_id
+                               for user_role in audit.context.user_roles
+                               if user_role.role.name == u"Auditor"])
+  return acl_dict
+
+
+def relate_assignees(assessment, snapshot, template, audit):
   """Generates assignee list and relates them to Assessment objects
 
     Args:
         assessment (model instance): Assessment model
-        related (dict): Dict containing model instances related to assessment
-                        - obj
-                        - audit
-                        - template (an AssessmentTemplate, can be None)
+        snapshot (model instance): Snapshot,
+        template (model instance): AssessmentTemplate model nullable,
+        audit (model instance): Audit
   """
-  people_types = {
-      "assessors": "Assessor",
-      "verifiers": "Verifier",
-      "creator": "Creator",
-  }
-  people_list = []
-
-  for person_key, person_type in people_types.iteritems():
-    assign_people(
-        get_value(person_key, **related),
-        person_type, assessment, people_list)
-
-  for person in people_list:
-    if person['source'] is not None and person['destination'] is not None:
-      rel = Relationship(
-          source=person['source'],
-          destination=person['destination'],
-          context=person['context'])
-      rel.attrs = person['attrs']
-      db.session.add(rel)
+  if template:
+    template_settings = template.default_people
+  else:
+    template_settings = {"assessors": "Principal Assignees",
+                         "verifiers": "Auditors"}
+  acl_dict = generate_role_object_dict(snapshot, audit)
+  assignee_ids = get_people_ids_based_on_role("assessors",
+                                              "Audit Lead",  # default assessor
+                                              template_settings,
+                                              acl_dict)
+  verifier_ids = get_people_ids_based_on_role("verifiers",
+                                              "Auditors",  # default verifier
+                                              template_settings,
+                                              acl_dict)
+  generate_assignee_relations(assessment,
+                              assignee_ids,
+                              verifier_ids,
+                              [get_current_user_id()])
 
 
-def relate_ca(assessment, related):
+def relate_ca(assessment, template):
   """Generates custom attribute list and relates it to Assessment objects
 
     Args:
         assessment (model instance): Assessment model
-        related (dict): Dict containing model instances related to assessment
-                        - template
-                        - obj
-                        - audit
+        template: Assessment Temaplte instance (may be None)
   """
-  if not related["template"]:
+  if not template:
     return
 
-  ca_query = all_models.CustomAttributeDefinition.eager_query()
-  ca_definitions = ca_query.filter_by(
-      definition_id=related["template"].id,
+  ca_definitions = all_models.CustomAttributeDefinition.query.options(
+      orm.undefer_group('CustomAttributeDefinition_complete'),
+  ).filter_by(
+      definition_id=template.id,
       definition_type="assessment_template",
   ).order_by(
       all_models.CustomAttributeDefinition.id
   )
-
   for definition in ca_definitions:
     cad = all_models.CustomAttributeDefinition(
         title=definition.title,

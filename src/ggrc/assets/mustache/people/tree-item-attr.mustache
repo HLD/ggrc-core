@@ -1,0 +1,71 @@
+{{!
+    Copyright (C) 2017 Google Inc.
+    Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+}}
+
+{{#switch attr_name}}
+  {{#case 'email'}}
+    <div class="email tree-title-area">
+      <span class="email">{{instance.email}}</span>
+      {{#if_equals system_wide_role 'No Access'}}
+        <span class="user-disabled">
+                      (Inactive user)
+                    </span>
+      {{/if_equals}}
+    </div>
+  {{/case}}
+  {{#case 'title'}}
+    <div class="email tree-title-area">
+      {{{firstnonempty instance.name instance.email ''}}}
+    </div>
+  {{/case}}
+  {{#case 'authorizations'}}
+    <div class="role tree-title-area">
+    {{#if result}}
+      {{#with_program_roles_as "roles" result}}
+        {{#if roles.length}}
+          <div class="item-data">
+          <div class="tree-title-area">
+          <span class="role" title="{{#roles}}{{role.permission_summary}} {{/roles}}">
+          {{#if_equals roles.0.role.permission_summary 'Mapped'}}
+            <span class="no-role">
+              No Role
+            </span>
+          {{else}}
+            {{roles.0.role.permission_summary}}
+          {{/if_equals}}
+            {{#roles.1}}
+              {{#if_in_map roles 'role.permission_summary' 'Mapped'}}
+                {{^if_equals roles.length 2}}
+                  + {{sum roles.length '-2'}}
+                {{/if_equals}}
+              {{else}}
+                + {{sum roles.length '-1'}}
+              {{/if_in_map}}
+            {{/roles.1}}
+            </span>
+          </div>
+          </div>
+        {{/if}}
+      {{/with_program_roles_as}}
+    {{else}}
+      <div class="item-data">
+        <div class="tree-title-area">
+          {{#if_equals system_wide_role 'No Access'}}
+            <span class="no-role">
+              No Role
+            </span>
+          {{else}}
+            <span class="role">
+              {{system_wide_role}}
+            </span>
+          {{/if_equals}}
+        </div>
+      </div>
+    {{/if}}
+    </div>
+  {{/case}}
+  {{#default}}
+    {{get_default_attr_value attr_name instance}}
+  {{/default}}
+{{/switch}}

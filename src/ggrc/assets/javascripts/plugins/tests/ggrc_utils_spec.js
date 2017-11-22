@@ -1,5 +1,5 @@
 /*!
-  Copyright (C) 2016 Google Inc.
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -9,7 +9,6 @@ describe('GGRC utils allowed_to_map() method', function () {
   var allowedToMap;
   var fakeOptions;
   var fakeProgram;
-  var fakeRequest;
   var fakeAudit;
 
   beforeAll(function () {
@@ -42,28 +41,6 @@ describe('GGRC utils allowed_to_map() method', function () {
     });
   });
 
-  describe('given an Audit and Request pair', function () {
-    beforeEach(function () {
-      fakeRequest = new CMS.Models.Request({type: 'Request'});
-      fakeAudit = new CMS.Models.Audit({type: 'Audit'});
-
-      spyOn(GGRC.Mappings, 'get_canonical_mapping_name')
-        .and.returnValue('audits');
-
-      spyOn(Permission, 'is_allowed_for').and.returnValue(true);
-    });
-
-    it('returns false for Audit as source and Request as target', function () {
-      var result = allowedToMap(fakeAudit, fakeRequest, fakeOptions);
-      expect(result).toBe(false);
-    });
-
-    it('returns false for Request as source and Audit as target', function () {
-      var result = allowedToMap(fakeRequest, fakeAudit, fakeOptions);
-      expect(result).toBe(false);
-    });
-  });
-
   describe('given a Person instance', function () {
     var origShortName;
     var otherInstance;
@@ -90,134 +67,6 @@ describe('GGRC utils allowed_to_map() method', function () {
   });
 });
 
-describe('GGRC utils isEmptyCA() method', function () {
-  var isEmptyCA;
-
-  beforeAll(function () {
-    isEmptyCA = GGRC.Utils.isEmptyCA;
-  });
-
-  describe('check Rich Text value', function () {
-    it('returns true for empty div', function () {
-      var result = isEmptyCA('<div></div>', 'Rich Text');
-      expect(result).toBe(true);
-    });
-
-    it('returns true for div with a line break', function () {
-      var result = isEmptyCA('<div><br></div>', 'Rich Text');
-      expect(result).toBe(true);
-    });
-
-    it('returns true for div with a empty list', function () {
-      var result = isEmptyCA('<div><ul><li></li></ul></div>', 'Rich Text');
-      expect(result).toBe(true);
-    });
-
-    it('returns true for div with a empty paragraph', function () {
-      var result = isEmptyCA('<div><p></p></div>', 'Rich Text');
-      expect(result).toBe(true);
-    });
-
-    it('returns false for div with the text', function () {
-      var result = isEmptyCA('<div>Very important text!</div>', 'Rich Text');
-      expect(result).toBe(false);
-    });
-
-    it('returns false for not empty list', function () {
-      var result = isEmptyCA('<div><ul><li>One</li><li>Two</li></ul></div>',
-        'Rich Text');
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('check Checkbox value', function () {
-    it('returns false for unchecked', function () {
-      var result = isEmptyCA('0', 'Checkbox');
-      expect(result).toBe(true);
-    });
-
-    it('returns true for checked', function () {
-      var result = isEmptyCA('1', 'Checkbox');
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('check Text value', function () {
-    it('returns false for not empty', function () {
-      var result = isEmptyCA('some text', 'Text');
-      expect(result).toBe(false);
-    });
-
-    it('returns true for empty', function () {
-      var result = isEmptyCA('', 'Text');
-      expect(result).toBe(true);
-    });
-  });
-
-  describe('check Map:Person type', function () {
-    it('returns false for selected', function () {
-      var result = isEmptyCA('Person', 'Map:Person');
-      expect(result).toBe(false);
-    });
-
-    it('returns true for not selected', function () {
-      var result = isEmptyCA('', 'Map:Person');
-      expect(result).toBe(true);
-    });
-  });
-
-  describe('check Date type', function () {
-    it('returns false for selected', function () {
-      var result = isEmptyCA('01/01/2016', 'Date');
-      expect(result).toBe(false);
-    });
-
-    it('returns true for not selected', function () {
-      var result = isEmptyCA('', 'Date');
-      expect(result).toBe(true);
-    });
-  });
-
-  describe('check Dropdown type', function () {
-    it('returns false for selected', function () {
-      var result = isEmptyCA('value', 'Dropdown');
-      expect(result).toBe(false);
-    });
-
-    it('returns true for not selected', function () {
-      var result = isEmptyCA('', 'Dropdown');
-      expect(result).toBe(true);
-    });
-  });
-
-  describe('check invalid type', function () {
-    it('returns false for invalid type', function () {
-      var result = isEmptyCA('some value', 'Invalid');
-      expect(result).toBe(false);
-    });
-  });
-});
-
-describe('GGRC utils getRelatedObjects() method', function () {
-  it('returns related object only for second tier', function () {
-    var result = GGRC.Utils.getRelatedObjects(1);
-    expect(result).toEqual(jasmine.any(Object));
-    expect(result.mapping).toEqual('related_objects');
-    expect(result.draw_children).toBeFalsy();
-    expect(result.child_options).toEqual([{}]);
-  });
-
-  it('returns related objects for second and third tier', function () {
-    var result = GGRC.Utils.getRelatedObjects(2);
-    expect(result).toEqual(jasmine.any(Object));
-    expect(result.mapping).toEqual('related_objects');
-    expect(result.draw_children).toBeTruthy();
-    expect(result.child_options).toEqual(jasmine.any(Object));
-    expect(result.child_options[0].draw_children).toBeFalsy();
-    expect(result.child_options[0].mapping).toEqual('related_objects');
-  });
-});
-
 describe('GGRC utils getMappableTypes() method', function () {
   var mapper;
 
@@ -227,7 +76,7 @@ describe('GGRC utils getMappableTypes() method', function () {
       'DataAsset', 'Facility', 'Market', 'OrgGroup', 'Vendor', 'Process',
       'Product', 'Project', 'System', 'Regulation', 'Policy', 'Contract',
       'Standard', 'Program', 'Issue', 'Control', 'Section', 'Clause',
-      'Objective', 'Audit', 'Assessment', 'AccessGroup', 'Request',
+      'Objective', 'Audit', 'Assessment', 'AccessGroup',
       'Document', 'Risk', 'Threat'
     ];
     mapper = GGRC.Utils.getMappableTypes;
@@ -242,13 +91,14 @@ describe('GGRC utils getMappableTypes() method', function () {
     var result = mapper('Reference');
     expect(_.contains(result, 'Reference')).toBe(false);
   });
-  it('returns no results for Person', function () {
+  it('does not return Issue type for Person', function () {
     var result = mapper('Person');
-    expect(result.length).toBe(0);
+    expect(_.contains(result, 'Issue')).toBe(false);
   });
-  it('returns no results for AssessmentTemplate', function () {
+  it('returns only Audit type for AssessmentTemplate', function () {
     var result = mapper('AssessmentTemplate');
-    expect(result.length).toBe(0);
+    expect(result.length).toBe(1);
+    expect(result[0]).toBe('Audit');
   });
   it('always returns whitelisted items', function () {
     var whitelisted = ['Hello', 'World'];
@@ -281,10 +131,6 @@ describe('GGRC utils getMappableTypes() method', function () {
 });
 
 describe('GGRC utils isMappableType() method', function () {
-  it('returns false for Person and any type', function () {
-    var result = GGRC.Utils.isMappableType('Person', 'Program');
-    expect(result).toBe(false);
-  });
   it('returns false for AssessmentTemplate and  any type', function () {
     var result = GGRC.Utils.isMappableType('AssessmentTemplate', 'Program');
     expect(result).toBe(false);
@@ -293,4 +139,74 @@ describe('GGRC utils isMappableType() method', function () {
     var result = GGRC.Utils.isMappableType('Program', 'Control');
     expect(result).toBe(true);
   });
+});
+
+describe('GGRC utils peopleWithRoleName() method', function () {
+  var instance;
+  var method;  // the method under test
+  var origRoleList;
+
+  beforeAll(function () {
+    method = GGRC.Utils.peopleWithRoleName;
+
+    origRoleList = GGRC.access_control_roles;
+    GGRC.access_control_roles = [
+      {id: 5, name: 'Role A', object_type: 'Market'},
+      {id: 9, name: 'Role A', object_type: 'Audit'},
+      {id: 1, name: 'Role B', object_type: 'Market'},
+      {id: 7, name: 'Role A', object_type: 'Policy'},
+      {id: 3, name: 'Role B', object_type: 'Audit'},
+      {id: 2, name: 'Role B', object_type: 'Policy'}
+    ];
+  });
+
+  afterAll(function () {
+    GGRC.access_control_roles = origRoleList;
+  });
+
+  beforeEach(function () {
+    var acl = [
+      {person: {id: 3}, ac_role_id: 1},
+      {person: {id: 5}, ac_role_id: 3},
+      {person: {id: 6}, ac_role_id: 9},
+      {person: {id: 2}, ac_role_id: 3},
+      {person: {id: 7}, ac_role_id: 9},
+      {person: {id: 5}, ac_role_id: 2},
+      {person: {id: 9}, ac_role_id: 9}
+    ];
+
+    instance = new can.Map({
+      id: 42,
+      type: 'Audit',
+      'class': {model_singular: 'Audit'},
+      access_control_list: acl
+    });
+  });
+
+  it('returns users that have a role granted on a particular instance',
+    function () {
+      var result = method(instance, 'Role B');
+      expect(result.map(function (person) {
+        return person.id;
+      }).sort()).toEqual([2, 5]);
+    }
+  );
+
+  it('returns empty array if role name not found', function () {
+    var result = method(instance, 'Role X');
+    expect(result).toEqual([]);
+  });
+
+  it('returns empty array if no users are granted a particular role',
+    function () {
+      var result;
+
+      instance.attr('type', 'Policy');
+      instance.attr('class.model_singular', 'Policy');
+
+      result = method(instance, 'Role A');
+
+      expect(result).toEqual([]);
+    }
+  );
 });

@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -224,16 +224,31 @@ describe('can.Model.Cacheable', function () {
 
       });
 */
-      it('refreshes model', function (done) {
+      it('does not refresh model', function (done) {
         var obj = _obj;
         spyOn(obj, 'refresh').and.returnValue($.when(obj));
-        spyOn(can, 'ajax').and.returnValue(new $.Deferred().reject({status: 409}, 409, 'CONFLICT'));
+        spyOn(can, 'ajax').and.returnValue(
+          new $.Deferred().reject({status: 409}, 409, 'CONFLICT'));
         CMS.Models.DummyModel.update(obj.id, obj.serialize()).then(function () {
-          expect(obj.refresh).toHaveBeenCalledWith();
-          setTimeout(function () {
-            done();
-          }, 10);
-        }, failAll(done));
+          done();
+        }, function () {
+          expect(obj.refresh).not.toHaveBeenCalled();
+          done();
+        });
+      });
+
+      it('sets timeout id to XHR-response', function (done) {
+        var obj = _obj;
+        spyOn(obj, 'refresh').and.returnValue($.when(obj));
+        spyOn(window, 'setTimeout').and.returnValue(999);
+        spyOn(can, 'ajax').and.returnValue(
+          new $.Deferred().reject({status: 409}, 409, 'CONFLICT'));
+        CMS.Models.DummyModel.update(obj.id, obj.serialize()).then(function () {
+          done();
+        }, function (xhr) {
+          expect(xhr.warningId).toEqual(999);
+          done();
+        });
       });
 
 /*
@@ -293,7 +308,8 @@ describe('can.Model.Cacheable', function () {
       var dummy;
       beforeEach(function () {
         dummy = new CMS.Models.DummyModel({id: 1});
-        instance = jasmine.createSpyObj('instance', ['get_binding', 'isNew', 'refresh', 'attr']);
+        instance = jasmine.createSpyObj('instance',
+          ['get_binding', 'isNew', 'refresh', 'attr', 'dispatch']);
         binding = jasmine.createSpyObj('binding', ['refresh_stubs']);
         instance._pending_joins = [{what: dummy, how: 'add', through: 'foo'}];
         instance.isNew.and.returnValue(false);
@@ -330,7 +346,8 @@ describe('can.Model.Cacheable', function () {
       beforeEach(function () {
         dummy = new CMS.Models.DummyModel({id: 1});
         dummy_join = new CMS.Models.DummyJoin({id: 1});
-        instance = jasmine.createSpyObj('instance', ['get_binding', 'isNew', 'refresh', 'attr']);
+        instance = jasmine.createSpyObj('instance',
+          ['get_binding', 'isNew', 'refresh', 'attr', 'dispatch']);
         binding = jasmine.createSpyObj('binding', ['refresh_stubs']);
         instance._pending_joins = [{what: dummy, how: 'remove', through: 'foo'}];
         instance.isNew.and.returnValue(false);
@@ -355,9 +372,10 @@ describe('can.Model.Cacheable', function () {
 
   describe('::findAll', function () {
     it('throws errors when called directly on Cacheable instead of a subclass', function () {
-      expect(can.Model.Cacheable.findAll).toThrow(
-        'No default findAll() exists for subclasses of Cacheable'
-      );
+      expect(can.Model.Cacheable.findAll)
+        .toThrow(
+          new Error('No default findAll() exists for subclasses of Cacheable')
+        );
     });
 
     it('unboxes collections when passed back from the find', function (done) {
@@ -440,8 +458,9 @@ describe('can.Model.Cacheable', function () {
 
   describe('::findPage', function () {
     it('throws errors when called directly on Cacheable instead of a subclass', function () {
-      expect(can.Model.Cacheable.findPage).toThrow(
-       'No default findPage() exists for subclasses of Cacheable'
+      expect(can.Model.Cacheable.findPage)
+        .toThrow(
+          new Error('No default findPage() exists for subclasses of Cacheable')
       );
     });
   });
@@ -494,119 +513,6 @@ describe('can.Model.Cacheable', function () {
     });
   });
 
-  describe('::parse_deep_property_descriptor', function () {
-    it('produces an immutable descriptor', function () {
-      var desc = can.Model.Cacheable
-        .parse_deep_property_descriptor('foo.bar|baz|quux');
-      var zero = desc[0][0];
-      var one = desc[1];
-
-      try {
-        desc[0][0] = 0;
-        desc[1] = 0;
-      } catch (err) {
-        // we may get an error trying to modify an immutable object
-      }
-      expect(desc[0][0]).toEqual(zero);
-      expect(desc[1]).toEqual(one);
-    });
-  });
-
-  describe('#get_deep_property', function () {
-    var equip = function (value) {
-      if (typeof value === 'object') {
-        value.get_deep_property =
-          can.Model.Cacheable.prototype.get_deep_property;
-        _.each(value, equip);
-      }
-      return value;
-    };
-    var get = function (key, value) {
-      var desc = can.Model.Cacheable.parse_deep_property_descriptor(key);
-      return equip(value).get_deep_property(desc);
-    };
-
-    it('gets a simple property', function () {
-      expect(get('foo', {foo: 'bar'})).toBe('bar');
-      expect(get('foo', {foo: 2})).toBe(2);
-      expect(get('foo', {})).toBe(null);
-    });
-
-    it('gets a nested property', function () {
-      var value = {
-        foo: 'bar',
-        bar: {
-          foo: 1,
-          bar: '2',
-          baz: {foo: 'foo'}
-        }
-      };
-      expect(get('foo', value)).toBe('bar');
-      expect(get('bar', value)).toBe(value.bar);
-      expect(get('bar.foo', value)).toBe(1);
-      expect(get('bar.bar', value)).toBe('2');
-      expect(get('bar.baz.foo', value)).toBe('foo');
-    });
-
-    it('gets and element from an array', function () {
-      expect(get('0.1', [[undefined, 2], []])).toBe(2);
-      expect(get('a.1', {a: ['foo', 'bar']})).toBe('bar');
-    });
-
-    it('chooses first non-empty', function () {
-      var value1 = {
-        foo: {
-          bar: {
-            quux: 3
-          }
-        }
-      };
-      var value2 = {
-        foo: {
-          baz: {
-            quux: 3
-          }
-        }
-      };
-      expect(get('foo.bar|baz.quux', value1)).toBe(3);
-      expect(get('foo.bar|baz.quux', value2)).toBe(3);
-    });
-
-    it('automatically calls reify when available', function () {
-      var value = {
-        foo: {
-          reify: function () {
-            return {bar: 'baz'};
-          }
-        }
-      };
-      expect(get('foo.bar', value)).toBe('baz');
-    });
-
-    it('does a multi-get for GET_ALL', function () {
-      var value = {
-        foo: [
-            {bar: 1},
-            {bar: 2},
-            {baz: 3}
-        ]
-      };
-      expect(get('foo.GET_ALL.bar|baz', value)).toEqual([1, 2, 3]);
-    });
-
-    it('produces a tree for nested multi-get', function () {
-      var value = {
-        foo: [
-            {bar: [{y: 1}, {x: 2}, {x: 3}]},
-            {bar: [{x: 4}, {x: 5}, {y: 6}]},
-            {baz: [{y: 7}, {x: 8}, {x: 9}]}
-        ]
-      };
-      expect(get('foo.GET_ALL.bar|baz.GET_ALL.x|y', value)).
-        toEqual([[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
-    });
-  });
-
   describe('::_custom_attribute_map', function () {
     it('sets a custom attribute mapping', function () {
       var obj = CMS.Models.DummyModel();
@@ -630,7 +536,7 @@ describe('can.Model.Cacheable', function () {
       obj._custom_attribute_map(1, 'garbage');
       expect(obj.custom_attributes[1]).toEqual('DummyModel:1');
       obj._custom_attribute_map(1, '');
-      expect(obj.custom_attributes[1]).toEqual(undefined);
+      expect(obj.custom_attributes[1]).toEqual('Person:None');
     });
   });
 });

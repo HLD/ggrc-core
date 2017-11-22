@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """ Unit tests for the Assessment object """
@@ -36,28 +36,25 @@ class TestAssessmentMixins(test_mixins_base.TestMixinsBase):
     ]
 
     self.attributes_introduced = [
-        ('audit', dict),
+        ('audit_id', attributes.InstrumentedAttribute),
         ('design', attributes.InstrumentedAttribute),
         ('operationally', attributes.InstrumentedAttribute),
         ('object', dict),
         ('status', attributes.InstrumentedAttribute),                    # Stateful       # noqa
         ('assignees', property),                                         # Assignable     # noqa
-        ('contact_id', attributes.InstrumentedAttribute),                # WithContact    # noqa
-        ('contact', attributes.InstrumentedAttribute),                   # WithContact    # noqa
-        ('secondary_contact', attributes.InstrumentedAttribute),         # WithContact    # noqa
         ('custom_attribute_values', attributes.InstrumentedAttribute),   # CustomAttrib.  # noqa
         ('description', attributes.InstrumentedAttribute),               # Described      # noqa
         ('end_date', attributes.InstrumentedAttribute),                  # Timeboxed      # noqa
         ('notes', attributes.InstrumentedAttribute),                     # Noted          # noqa
-        ('object_documents', attributes.InstrumentedAttribute),          # Documentable   # noqa
+        ('document_url', property),                                      # Documentable   # noqa
+        ('document_evidence', property),                                 # Documentable   # noqa
         ('object_people', attributes.InstrumentedAttribute),             # Personable     # noqa
         ('os_state', attributes.InstrumentedAttribute),                  # HasObjectState # noqa
-        ('reference_url', attributes.InstrumentedAttribute),             # HyperLinked    # noqa
+        ('reference_url', property),                                     # Documentable   # noqa
         ('related_sources', attributes.InstrumentedAttribute),           # Relatable      # noqa
         ('related_destinations', attributes.InstrumentedAttribute),      # Relatable      # noqa
         ('slug', attributes.InstrumentedAttribute),                      # Slugged        # noqa
         ('start_date', attributes.InstrumentedAttribute),                # Timeboxed      # noqa
         ('test_plan', attributes.InstrumentedAttribute),                 # TestPlanned    # noqa
         ('title', attributes.InstrumentedAttribute),                     # Titled         # noqa
-        ('url', attributes.InstrumentedAttribute),                       # HyperLinked    # noqa
     ]

@@ -1,7 +1,14 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
+
+import '../components/info-pin-buttons/info-pin-buttons';
+import '../components/questions-link/questions-link';
+import '../components/info-pane/info-pane-footer';
+import '../components/assessment/info-pane/info-pane';
+import '../components/folder-attachments-list/folder-attachments-list';
+import '../components/unmap-button/unmap-person-button';
 
 can.Control('CMS.Controllers.InfoPin', {
   defaults: {
@@ -25,8 +32,15 @@ can.Control('CMS.Controllers.InfoPin', {
     return view;
   },
   findOptions: function (el) {
-    var treeNode = el.closest('.cms_controllers_tree_view_node').control();
-    return treeNode.options;
+    var options;
+    var treeNode = el.closest('.cms_controllers_tree_view_node');
+
+    if (treeNode.length) {
+      options = treeNode.control().options;
+    } else {
+      options = el.closest('.tree-item-element').viewModel();
+    }
+    return options;
   },
   loadChildTrees: function () {
     var childTreeDfds = [];
@@ -41,72 +55,125 @@ can.Control('CMS.Controllers.InfoPin', {
         //  Ensure this targets only direct child trees, not sub-tree trees
         if ($el.closest('.' + that.constructor._fullName).is(that.element)) {
           childTreeControl = $el.control();
-          if (childTreeControl)
+          if (childTreeControl) {
             childTreeDfds.push(childTreeControl.display());
+          }
         }
       });
   },
+  getPinHeight: function (maximizedState) {
+    if (maximizedState) {
+      return Math.floor($(window).height() * 3 / 4);
+    }
+    return Math.floor($(window).height() / 3);
+  },
   hideInstance: function () {
-    this.element.stop(true);
-    this.element.height(0).html('');
+    this.unsetInstance();
     $(window).trigger('resize');
   },
   unsetInstance: function () {
-    this.element.stop(true);
-    this.element.animate({
-      height: 0
-    }, {
-      duration: 800,
-      complete: function () {
-        this.element.html('');
-        $('.cms_controllers_tree_view_node').removeClass('active');
-        $(window).trigger('resize');
-      }.bind(this)
-    });
+    this.element
+      .css({
+        height: 0,
+        'z-index': -1,
+        opacity: 0
+      })
+      .html('');
   },
-  setInstance: function (instance, el) {
-    var options = this.findOptions(el);
-    var view = this.findView(instance);
-    var panelHeight = $(window).height() / 3;
-    var confirmEdit = instance.class.confirmEditModal ?
-      instance.class.confirmEditModal : {};
-
-    if (!_.isEmpty(confirmEdit)) {
-      confirmEdit.confirm = this.confirmEdit;
-    }
-
+  setHtml: function (opts, view, confirmEdit, options, maximizedState) {
+    var instance = opts.attr('instance');
+    var parentInstance = opts.attr('parent_instance');
+    var self = this;
     this.element.html(can.view(view, {
       instance: instance,
+      isSnapshot: !!instance.snapshot || instance.isRevision,
+      parentInstance: parentInstance,
       model: instance.class,
       confirmEdit: confirmEdit,
       is_info_pin: true,
       options: options,
       result: options.result,
-      page_instance: GGRC.page_instance()
+      page_instance: GGRC.page_instance(),
+      maximized: maximizedState,
+      onChangeMaximizedState: function () {
+        return self.changeMaximizedState.bind(self);
+      },
+      onClose: function () {
+        return self.close.bind(self);
+      }
     }));
+  },
+  prepareView: function (opts, el, maximizedState, setHtml) {
+    var instance = opts.attr('instance');
+    var options = this.findOptions(el);
+    var populatedOpts = opts.attr('options');
+    var confirmEdit = instance.class.confirmEditModal ?
+      instance.class.confirmEditModal : {};
+    var view = this.findView(instance);
+    instance.attr('view', view);
+
+    if (populatedOpts && !options.attr('result')) {
+      options = populatedOpts;
+    }
+
+    if (!_.isEmpty(confirmEdit)) {
+      confirmEdit.confirm = this.confirmEdit;
+    }
+
+    if (setHtml) {
+      this.setHtml(opts, view, confirmEdit, options, maximizedState);
+    }
+  },
+  setInstance: function (opts, el, maximizedState) {
+    var instance = opts.attr('instance');
+    var panelHeight = this.getPinHeight(maximizedState);
+    var currentPanelHeight;
+    var infoPaneOpenDfd = can.Deferred();
+    var isSubtreeItem = opts.attr('options.isSubTreeItem');
+
+    opts.attr('options.isDirectlyRelated',
+      !isSubtreeItem ||
+      GGRC.Utils.TreeView.isDirectlyRelated(instance));
+
+    this.prepareView(opts, el, maximizedState, true);
+    // Load trees inside info pin
+    this.loadChildTrees();
 
     if (instance.info_pane_preload) {
       instance.info_pane_preload();
     }
 
-    // Load trees inside info pin
-    this.loadChildTrees();
-
     // Make sure pin is visible
-    if (!this.element.height()) {
-      this.element.animate({
-        height: panelHeight
-      }, {
-        duration: 800,
-        easing: 'easeOutExpo',
-        complete: function () {
-          this.ensureElementVisible(el);
-        }.bind(this)
-      });
+    currentPanelHeight = this.element.height();
+    if (!currentPanelHeight || currentPanelHeight !== panelHeight) {
+      this.element.css('height', this.getPinHeight(true));
     } else {
       this.ensureElementVisible(el);
     }
+
+    this.element.css('z-index', 1);
+    this.element.css('opacity', 1);
+
+    // Temporary solution...
+    setTimeout(infoPaneOpenDfd.resolve, 1000);
+
     this.element.trigger('scroll');
+    return infoPaneOpenDfd;
+  },
+  updateInstance: function (selector, instance) {
+    var vm = this.element.find(selector).viewModel();
+
+    vm.attr('instance', instance);
+    vm.attr('instance').dispatch({
+      type: 'update'
+    });
+  },
+  setLoadingIndicator: function (selector, isLoading) {
+    this.element.toggleClass('loading');
+
+    this.element.find(selector)
+      .viewModel()
+      .attr('isLoading', isLoading);
   },
   ensureElementVisible: function (el) {
     var $objectArea;
@@ -156,45 +223,32 @@ can.Control('CMS.Controllers.InfoPin', {
     }, confirmDfd.resolve);
     return confirmDfd;
   },
-  '.pin-action a click': function (el) {
-    var $win = $(window);
-    var winHeight = $win.height();
-    var options = {
-      duration: 800,
-      easing: 'easeOutExpo'
-    };
-    var targetHeight = {
-      min: 75,
-      normal: (winHeight / 3),
-      max: (winHeight * 3 / 4)
-    };
-    var $info = this.element.find('.info');
-    var type = el.data('size');
-    var size = targetHeight[type];
+  changeMaximizedState: function (maximizedState) {
+    var $activeTree = $('.cms_controllers_tree_view_node.active');
+    var size = this.getPinHeight(maximizedState);
 
-    if (type === 'deselect') {
-      // TODO: Make some direct communication between the components
-      //       and make sure only one widget has 'widget-active' class
-      el.find('[rel=tooltip]').data('tooltip').hide();
-      $('.widget-area .widget:visible').find('.cms_controllers_tree_view')
-        .control().deselect();
-      this.unsetInstance();
-      return;
-    }
-    this.element.find('.pin-action i').css({opacity: 0.25});
+    this.element.css('height', size);
 
-    if (size < $info.height()) {
-      options.start = function () {
-        $win.trigger('resize', size);
-      };
+    if (maximizedState) {
+      $activeTree
+        .addClass('maximized-info-pane');
     } else {
-      options.complete = function () {
-        $win.trigger('resize');
-      };
+      $activeTree
+        .removeClass('maximized-info-pane');
+    }
+  },
+  close: function () {
+    var visibleWidget = $('.widget-area .widget:visible');
+    var element = visibleWidget.find('.cms_controllers_tree_view');
+
+    if (element.length) {
+      element.control().deselect();
+    } else {
+      visibleWidget.find('.item-active')
+        .removeClass('item-active');
     }
 
-    this.element.animate({height: size}, options);
-    el.find('i').css({opacity: 1});
+    this.unsetInstance();
   },
   ' scroll': function (el, ev) {
     var header = this.element.find('.pane-header');

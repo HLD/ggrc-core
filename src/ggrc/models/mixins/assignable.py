@@ -1,23 +1,32 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Contains the Assignable mixin.
 
 This allows adding various assignee types to the object, like Verifier,
-Requester, etc.
+Creator, etc.
 """
 
-from sqlalchemy import and_
-from sqlalchemy import or_
-from ggrc.models import person
+import sqlalchemy as sa
+
 from ggrc import db
+from ggrc.models import person
 from ggrc.models import relationship
+from ggrc.models import reflection
 
 
 class Assignable(object):
   """Mixin for models with assignees"""
 
   ASSIGNEE_TYPES = set(["Assignee"])
+
+  _api_attrs = reflection.ApiAttributes(
+      reflection.Attribute("assignees", create=False, update=False),
+  )
+
+  _custom_publish = {
+      "assignees": lambda obj: obj.publish_assignees(),
+  }
 
   @property
   def assignees(self):
@@ -26,36 +35,160 @@ class Assignable(object):
     Returns:
         A set of assignees.
     """
-
-    assignees = [(r.source, tuple(r.attrs["AssigneeType"].split(",")))
-                 for r in self.related_sources
-                 if "AssigneeType" in r.attrs]
-    assignees += [(r.destination, tuple(r.attrs["AssigneeType"].split(",")))
-                  for r in self.related_destinations
-                  if "AssigneeType" in r.attrs]
+    assignees_map = self._get_assignees_map()
+    assignees = [
+        (assignees_map[r.source_id],
+         tuple(set(r.attrs["AssigneeType"].split(","))))
+        for r in self.related_sources
+        if "AssigneeType" in r.attrs
+    ]
+    assignees += [
+        (assignees_map[r.destination_id],
+         tuple(set(r.attrs["AssigneeType"].split(","))))
+        for r in self.related_destinations
+        if "AssigneeType" in r.attrs
+    ]
     return assignees
 
-  def get_assignees(self, filter_=None):
-    """Get assignees by type.
+  @property
+  def assignees_by_type(self):
+    """Property that returns assignees.
 
-    This is helper for fetching only specific assignee types.
-
-    Args:
-      filter_: String containing assignee type or a list with desired assignee
-        types. If None, all assignees are returned (see self.assignees).
-
-    Returs:
-      Filtered list of assignees.
+    Returns:
+      a dict with keys equal to assignee types and values equal to list of
+      Person objects of assignees of this type; for instance:
+      {"Creator": [<Person1>, <Person2>],
+       "Assessor": [<Person2>]}
     """
-    if filter_ is None:
-      return self.assignees
-    elif isinstance(filter_, basestring):
-      filter_ = [filter_]
+    assignees_map = self._get_assignees_map()
 
-    filter_set = set(filter_)
+    def get_roles(rel):
+      return set(rel.attrs.get("AssigneeType", "").split(","))
 
-    return [(person_, roles) for person_, roles in self.assignees
-            if filter_set.intersection(roles)]
+    result = {}
+    result_inverse = {
+        assignees_map[r.source_id]: get_roles(r)
+        for r in self.related_sources
+        if r.source_type == "Person"
+    }
+    result_inverse.update({
+        assignees_map[r.destination_id]: get_roles(r)
+        for r in self.related_destinations
+        if r.destination_type == "Person"
+    })
+
+    for assignee, roles in result_inverse.items():
+      for role in roles:
+        result[role] = result.get(role, []) + [assignee]
+
+    return result
+
+  def publish_assignees(self):
+    """Serialize assignees to json.
+
+    Transforms the value of assignees_by_type property to basic structures
+    (lists and dicts) that are easily represented in json.
+    The people lists are sorted by names or emails.
+
+    Returns:
+      a dict with keys equal to assignee types and values equal to list of
+      serialized assignees of this type; for instance:
+      {"Creator": [{"id": 1, "name": "Aaron", "email": "aaron@example.com"},
+                   {"id": 2, "name": None, "email": "noname@example.com"}],
+       "Assessor": [{"id": 2, "name": None, "email": "noname@example.com"}]}
+    """
+    return {
+        role: [person.log_json_base() for person in
+               sorted(people, key=lambda p: (p.name or p.email).lower())]
+        for role, people in self.assignees_by_type.items()
+    }
+
+  @classmethod
+  def eager_query(cls):
+    query = super(Assignable, cls).eager_query()
+    return query.options(
+        sa.orm.subqueryload("_assignees").undefer_group("Person_complete"),
+    )
+
+  @classmethod
+  def indexed_query(cls):
+    query = super(Assignable, cls).indexed_query()
+    return query.options(
+        sa.orm.subqueryload(
+            "_assignees"
+        ).load_only(
+            "id",
+            "name",
+            "email",
+        ),
+        sa.orm.subqueryload(
+            "related_sources"
+        ).load_only(
+            "id",
+            "source_type",
+            "source_id"
+        ),
+        sa.orm.subqueryload(
+            "related_sources"
+        ).joinedload(
+            "relationship_attrs"
+        ).load_only(
+            "attr_value",
+            "attr_name",
+            "id",
+            "relationship_id",
+        ),
+        sa.orm.subqueryload(
+            "related_destinations"
+        ).load_only(
+            "id",
+            "destination_type",
+            "destination_id",
+        ),
+        sa.orm.subqueryload(
+            "related_destinations"
+        ).joinedload(
+            "relationship_attrs"
+        ).load_only(
+            "attr_value",
+            "attr_name",
+            "id",
+            "relationship_id",
+        ),
+    )
+
+  @sa.ext.declarative.declared_attr
+  def _assignees(self):
+    """Attribute that is used to load all assigned People eagerly."""
+    rel = relationship.Relationship
+
+    assignee_id = sa.case(
+        [(rel.destination_type == person.Person.__name__,
+          rel.destination_id)],
+        else_=rel.source_id,
+    )
+    assignable_id = sa.case(
+        [(rel.destination_type == person.Person.__name__,
+          rel.source_id)],
+        else_=rel.destination_id,
+    )
+
+    return db.relationship(
+        person.Person,
+        primaryjoin=lambda: self.id == assignable_id,
+        secondary=rel.__table__,
+        secondaryjoin=lambda: person.Person.id == assignee_id,
+        viewonly=True,
+    )
+
+  def _get_assignees_map(self):
+    """Get a dict from Assignee id to Assignee object.
+
+    This method uses eagerly-loaded _assignees property and does not result in
+    additional DB calls.
+    """
+    # pylint: disable=not-an-iterable
+    return {person.id: person for person in self._assignees}
 
   @staticmethod
   def _validate_relationship_attr(class_, source, dest, existing, name, value):
@@ -101,24 +234,24 @@ class Assignable(object):
     Person = person.Person
     return db.session.query(Rel).join(RelAttr).join(
         Person,
-        or_(and_(
+        sa.or_(sa.and_(
             Rel.source_id == Person.id,
             Rel.source_type == Person.__name__
-        ), and_(
+        ), sa.and_(
             Rel.destination_id == Person.id,
             Rel.destination_type == Person.__name__
         ))
-    ).filter(and_(
+    ).filter(sa.and_(
         RelAttr.attr_value.contains(related_type),
         RelAttr.attr_name == "AssigneeType",
-        or_(and_(
+        sa.or_(sa.and_(
             Rel.source_type == Person.__name__,
             Rel.destination_type == cls.__name__,
             Rel.destination_id == cls.id
-        ), and_(
+        ), sa.and_(
             Rel.destination_type == Person.__name__,
             Rel.source_type == cls.__name__,
             Rel.source_id == cls.id
         )),
-        or_(predicate(Person.name), predicate(Person.email))
+        sa.or_(predicate(Person.name), predicate(Person.email))
     )).exists()

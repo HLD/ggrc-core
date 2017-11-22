@@ -1,12 +1,16 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
-
 from os.path import abspath, dirname, join
+
+import collections
+import ddt
 from flask.json import dumps
 
 from ggrc.converters import get_importables
+from ggrc.models import inflector
 from ggrc.models.reflection import AttributeInfo
-from integration.ggrc.converters import TestCase
+from integration.ggrc import TestCase
+from integration.ggrc.models import factories
 
 THIS_ABS_PATH = abspath(dirname(__file__))
 CSV_DIR = join(THIS_ABS_PATH, 'test_csvs/')
@@ -18,12 +22,15 @@ class TestExportEmptyTemplate(TestCase):
     self.client.get("/login")
     self.headers = {
         'Content-Type': 'application/json',
-        "X-Requested-By": "gGRC",
+        "X-Requested-By": "GGRC",
         "X-export-view": "blocks",
     }
 
   def test_basic_policy_template(self):
-    data = [{"object_name": "Policy", "fields": "all"}]
+    data = {
+        "export_to": "csv",
+        "objects": [{"object_name": "Policy", "fields": "all"}]
+    }
 
     response = self.client.post("/_service/export_csv",
                                 data=dumps(data), headers=self.headers)
@@ -32,13 +39,16 @@ class TestExportEmptyTemplate(TestCase):
     self.assertIn("Policy", response.data)
 
   def test_multiple_empty_objects(self):
-    data = [
-        {"object_name": "Policy", "fields": "all"},
-        {"object_name": "Regulation", "fields": "all"},
-        {"object_name": "Clause", "fields": "all"},
-        {"object_name": "OrgGroup", "fields": "all"},
-        {"object_name": "Contract", "fields": "all"},
-    ]
+    data = {
+        "export_to": "csv",
+        "objects": [
+            {"object_name": "Policy", "fields": "all"},
+            {"object_name": "Regulation", "fields": "all"},
+            {"object_name": "Clause", "fields": "all"},
+            {"object_name": "OrgGroup", "fields": "all"},
+            {"object_name": "Contract", "fields": "all"},
+        ],
+    }
 
     response = self.client.post("/_service/export_csv",
                                 data=dumps(data), headers=self.headers)
@@ -53,24 +63,18 @@ class TestExportEmptyTemplate(TestCase):
 
 class TestExportSingleObject(TestCase):
 
-  @classmethod
-  def setUpClass(cls):
-    TestCase.clear_data()
-    cls._import_file("data_for_export_testing.csv")
-
   def setUp(self):
+    super(TestExportSingleObject, self).setUp()
     self.client.get("/login")
     self.headers = {
         'Content-Type': 'application/json',
-        "X-Requested-By": "gGRC",
+        "X-Requested-By": "GGRC",
         "X-export-view": "blocks",
     }
 
-  def export_csv(self, data):
-    return self.client.post("/_service/export_csv", data=dumps(data),
-                            headers=self.headers)
-
   def test_simple_export_query(self):
+    response = self._import_file("data_for_export_testing_program.csv")
+    self._check_csv_response(response, {})
     data = [{
         "object_name": "Program",
         "filters": {
@@ -110,6 +114,8 @@ class TestExportSingleObject(TestCase):
         self.assertNotIn(",Cat ipsum {},".format(i), response.data)
 
   def test_and_export_query(self):
+    response = self._import_file("data_for_export_testing_program.csv")
+    self._check_csv_response(response, {})
     data = [{
         "object_name": "Program",
         "filters": {
@@ -139,6 +145,9 @@ class TestExportSingleObject(TestCase):
         self.assertNotIn(",Cat ipsum {},".format(i), response.data)
 
   def test_simple_relevant_query(self):
+    """Test simple relevant query"""
+    res = self._import_file("data_for_export_testing_program_contract.csv")
+    self._check_csv_response(res, {})
     data = [{
         "object_name": "Program",
         "filters": {
@@ -160,6 +169,8 @@ class TestExportSingleObject(TestCase):
         self.assertNotIn(",Cat ipsum {},".format(i), response.data)
 
   def test_program_audit_relevant_query(self):
+    response = self._import_file("data_for_export_testing_program_audit.csv")
+    self._check_csv_response(response, {})
     data = [{  # should return just program prog-1
         "object_name": "Program",
         "filters": {
@@ -192,6 +203,9 @@ class TestExportSingleObject(TestCase):
         self.assertNotIn(",Audit {},".format(i), response.data)
 
   def test_section_policy_relevant_query(self):
+    """Test section policy relevant query"""
+    response = self._import_file("data_for_export_testing_directives.csv")
+    self._check_csv_response(response, {})
     data = [{  # sec-1
         "object_name": "Section",
         "filters": {
@@ -276,6 +290,9 @@ class TestExportSingleObject(TestCase):
         self.assertNotIn(title, response.data, "'{}' was found".format(title))
 
   def test_multiple_relevant_query(self):
+    response = self._import_file(
+        "data_for_export_testing_program_policy_contract.csv")
+    self._check_csv_response(response, {})
     data = [{
         "object_name": "Program",
         "filters": {
@@ -314,17 +331,17 @@ class TestExportSingleObject(TestCase):
       return "1/1/2015"
 
     def data(model, attr, field):
-        return [{
-            "object_name": model.__name__,
-            "fields": "all",
-            "filters": {
-                "expression": {
-                    "left": field.lower(),
-                    "op": {"name": "="},
-                    "right": rhs(model, attr)
-                },
-            }
-        }]
+      return [{
+          "object_name": model.__name__,
+          "fields": "all",
+          "filters": {
+              "expression": {
+                  "left": field.lower(),
+                  "op": {"name": "="},
+                  "right": rhs(model, attr)
+              },
+          }
+      }]
 
     failed = set()
     for model in set(get_importables().values()):
@@ -332,41 +349,40 @@ class TestExportSingleObject(TestCase):
         if field is None:
           continue
         try:
-         field = field["display_name"] if type(field) is dict else field
-         res = self.export_csv(data(model, attr, field))
-         self.assertEqual(res.status_code, 200)
+          field = field["display_name"] if type(field) is dict else field
+          res = self.export_csv(data(model, attr, field))
+          self.assertEqual(res.status_code, 200)
         except Exception as e:
           failed.add((model, attr, field, e))
     self.assertEqual(sorted(failed), [])
 
 
+@ddt.ddt
 class TestExportMultipleObjects(TestCase):
 
-  @classmethod
-  def setUpClass(cls):
-    TestCase.clear_data()
-    cls._import_file("data_for_export_testing.csv")
-
   def setUp(self):
+    super(TestExportMultipleObjects, self).setUp()
     self.client.get("/login")
     self.headers = {
         'Content-Type': 'application/json',
-        "X-Requested-By": "gGRC",
+        "X-Requested-By": "GGRC",
         "X-export-view": "blocks",
     }
 
-  def export_csv(self, data):
-    return self.client.post("/_service/export_csv", data=dumps(data),
-                            headers=self.headers)
-
   def test_simple_multi_export(self):
+    """Test basic import of multiple objects"""
+    match = 1
+    with factories.single_commit():
+      programs = [factories.ProgramFactory().title for i in range(3)]
+      regulations = [factories.RegulationFactory().title for i in range(3)]
+
     data = [{
         "object_name": "Program",  # prog-1
         "filters": {
             "expression": {
                 "left": "title",
                 "op": {"name": "="},
-                "right": "cat ipsum 1"
+                "right": programs[match]
             },
         },
         "fields": "all",
@@ -376,17 +392,24 @@ class TestExportMultipleObjects(TestCase):
             "expression": {
                 "left": "title",
                 "op": {"name": "="},
-                "right": "Hipster ipsum A 1"
+                "right": regulations[match]
             },
         },
         "fields": "all",
     }]
     response = self.export_csv(data)
-
-    self.assertIn(",Cat ipsum 1,", response.data)
-    self.assertIn(",Hipster ipsum A 1,", response.data)
+    for i in range(3):
+      if i == match:
+        self.assertIn(programs[i], response.data)
+        self.assertIn(regulations[i], response.data)
+      else:
+        self.assertNotIn(programs[i], response.data)
+        self.assertNotIn(regulations[i], response.data)
 
   def test_relevant_to_previous_export(self):
+    """Test relevant to previous export"""
+    res = self._import_file("data_for_export_testing_relevant_previous.csv")
+    self._check_csv_response(res, {})
     data = [{
         "object_name": "Program",  # prog-1, prog-23
         "filters": {
@@ -490,3 +513,73 @@ class TestExportMultipleObjects(TestCase):
         self.assertIn(",Cheese ipsum ch {},".format(i), response.data)
       else:
         self.assertNotIn(",Cheese ipsum ch {},".format(i), response.data)
+
+  @ddt.data(
+      "Assessment",
+      "Policy",
+      "Regulation",
+      "Standard",
+      "Contract",
+      "Control",
+      "Section",
+      "Objective",
+      "Product",
+      "System",
+      "Process",
+      "Access Group",
+      "Clause",
+      "Data Asset",
+      "Facility",
+      "Market",
+      "Org Group",
+      "Project",
+      "Vendor",
+      "Risk Assessment",
+      "Risk",
+      "Threat",
+  )
+  def test_asmnt_procedure_export(self, model):
+    """Test export of Assessment Procedure."""
+    with factories.single_commit():
+      program = factories.ProgramFactory()
+      audit = factories.AuditFactory(program=program)
+    import_queries = []
+    for i in range(3):
+      import_queries.append(collections.OrderedDict([
+          ("object_type", model),
+          ("Assessment Procedure", "Procedure-{}".format(i)),
+          ("Title", "Title {}".format(i)),
+          ("Code*", "{}-{}".format(model, i)),
+          ("Admin", "user@example.com"),
+          ("Assignees", "user@example.com"),
+          ("Creators", "user@example.com"),
+          ("Description", "{} description".format(model)),
+          ("Program", program.slug),
+          ("Audit", audit.slug),
+          ("Start Date", ""),
+          ("End Date", ""),
+      ]))
+    self.check_import_errors(self.import_data(*import_queries))
+
+    model_cls = inflector.get_model(model)
+    objects = model_cls.query.order_by(model_cls.test_plan).all()
+    self.assertEqual(len(objects), 3)
+    for num, obj in enumerate(objects):
+      self.assertEqual(obj.test_plan, "Procedure-{}".format(num))
+
+    obj_dicts = [
+        {
+            "Code*": obj.slug,
+            "Assessment Procedure": "Procedure-{}".format(i)
+        } for i, obj in enumerate(objects)
+    ]
+    search_request = [{
+        "object_name": model_cls.__name__,
+        "filters": {
+            "expression": {},
+            "order_by": {"name": "id"}
+        },
+        "fields": ["slug", "test_plan"],
+    }]
+    exported_data = self.export_parsed_csv(search_request)[model]
+    self.assertEqual(exported_data, obj_dicts)

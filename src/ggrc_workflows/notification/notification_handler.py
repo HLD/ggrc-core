@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Handlers for workflow notifications.
@@ -14,224 +14,132 @@ exposed functions
     handle_cycle_modify,
     handle_cycle_task_status_change,
 """
+import datetime
+import collections
 
-from sqlalchemy import and_
-from sqlalchemy import or_
 from sqlalchemy import inspect
-from datetime import timedelta
-from datetime import datetime
-from datetime import date
 
-from ggrc import db
 from ggrc.models.notification import Notification
-from ggrc.models.notification import NotificationType
+
+from ggrc_workflows import models
+from ggrc_workflows.notification import pusher
 
 
-def handle_task_group_task(obj, notif_type=None):
-  """Add notification entry for task group tasks.
-
-  Args:
-    obj: Instance of a model for which the notification should be scheduled.
-    notif_type: The notification type for the scheduled notification.
-  """
-  if not notif_type:
-    return
-
-  notification = get_notification(obj)
-  if not notification:
-    start_date = obj.task_group.workflow.next_cycle_start_date
-    send_on = start_date - timedelta(notif_type.advance_notice)
-    add_notif(obj, notif_type, send_on)
+def get_notif_name_by_wf(workflow):
+    if not workflow.unit:
+      return "cycle_task_due_in"
+    return "{}_cycle_task_due_in".format(workflow.unit)
 
 
 def handle_workflow_modify(sender, obj=None, src=None, service=None):
   """Update or add notifications on a workflow update."""
-  if obj.status != "Active" or obj.frequency == "one_time":
+  if obj.status != obj.ACTIVE or obj.unit is None:
     return
-
   if not obj.next_cycle_start_date:
-    obj.next_cycle_start_date = date.today()
-
-  notification = get_notification(obj)
-  notif_type = get_notification_type(
-      "{}_workflow_starts_in".format(obj.frequency))
-
-  if not notification:
-    send_on = obj.next_cycle_start_date - timedelta(notif_type.advance_notice)
-    add_notif(obj, notif_type, send_on)
-
-    notif_type = get_notification_type("cycle_start_failed")
-    add_notif(obj, notif_type, obj.next_cycle_start_date + timedelta(1))
-
-  for task_group in obj.task_groups:
-    for task_group_task in task_group.task_group_tasks:
-      handle_task_group_task(task_group_task, notif_type)
+    obj.next_cycle_start_date = obj.min_task_start_date
+  pusher.update_or_create_notifications(
+      obj,
+      obj.next_cycle_start_date,
+      "{}_workflow_starts_in".format(obj.unit),
+      "cycle_start_failed")
+  query = pusher.get_notification_query(
+      *list(obj.tasks),
+      **{"notification_names": ["cycle_start_failed"]})
+  notif_type = pusher.get_notification_type("cycle_start_failed")
+  exist_task_ids = set(query.distinct(Notification.object_id))
+  for task in obj.tasks:
+    if task.id not in exist_task_ids:
+      pusher.push(task, notif_type, task.start_date)
 
 
-def add_cycle_task_due_notifications(obj):
-  """Add notifications entries for cycle task due dates.
-
-  Create two notification entries, one for X days before the due date and one
-  on the due date.
-
-  Args:
-    obj: Cycle object for notification generation.
-  """
-  if obj.status == "Verified":
-    return
-  if not obj.cycle_task_group.cycle.is_current:
-    return
-
-  notif_type = get_notification_type("{}_cycle_task_due_in".format(
-      obj.cycle_task_group.cycle.workflow.frequency))
-  send_on = obj.end_date - timedelta(notif_type.advance_notice)
-  add_notif(obj, notif_type, send_on)
-
-  notif_type = get_notification_type("cycle_task_due_today")
-  send_on = obj.end_date - timedelta(notif_type.advance_notice)
-  add_notif(obj, notif_type, send_on)
-
-
-def add_cycle_task_notifications(obj, start_notif_type=None):
-  """Add start and due  notification entries for cycle tasks."""
-  add_notif(obj, start_notif_type, date.today())
-  add_cycle_task_due_notifications(obj)
-
-
-def add_cycle_task_reassigned_notification(obj):
-  """Add or update notifications for reassigned cycle tasks."""
-  # check if the current assignee already got the first notification
-  result = db.session.query(Notification)\
-      .join(NotificationType)\
-      .filter(and_(Notification.object_id == obj.id,  # noqa
-                   Notification.object_type == obj.type,
-                   Notification.sent_at != None,
-                   or_(NotificationType.name == "cycle_task_reassigned",
-                       NotificationType.name == "cycle_created",
-                       NotificationType.name == "manual_cycle_created",
-                       )))
-
-  if result.count() == 0:
-    return
-
-  notif_type = get_notification_type("cycle_task_reassigned")
-  add_notif(obj, notif_type)
-
-
-def modify_cycle_task_notification(obj, notification_name):
-  notif = db.session.query(Notification)\
-      .join(NotificationType)\
-      .filter(and_(Notification.object_id == obj.id,
-                   Notification.object_type == obj.type,
-                   Notification.sent_at == None,  # noqa
-                   NotificationType.name == notification_name,
-                   ))
-  notif_type = get_notification_type(notification_name)
-  send_on = obj.end_date - timedelta(
-      notif_type.advance_notice)
-
-  today = datetime.combine(date.today(), datetime.min.time())
-  if send_on >= today:
-      # when cycle date is moved in the future, we update the current
-      # notification or add a new one.
-    if notif.count() == 1:
-      notif = notif.one()
-      notif.send_on = obj.end_date - timedelta(
-          notif.notification_type.advance_notice)
-      db.session.add(notif)
-    else:
-      add_notif(obj, notif_type, send_on)
+def handle_cycle_task_status_change(obj):
+  if obj.is_done:
+    query = pusher.get_notification_query(obj)
+    query.delete(synchronize_session="fetch")
+    # if all tasks are in inactive states then add notification to cycle
+    if all(task.is_done for task in obj.cycle.cycle_task_group_object_tasks):
+      pusher.update_or_create_notifications(
+          obj.cycle,
+          datetime.date.today(),
+          "all_cycle_tasks_completed")
   else:
-    # this should not be allowed, but if a cycle task is changed to a past
-    # date, we remove the current pending notification if it exists
-    for notif in notif.all():
-      db.session.delete(notif)
-
-
-def modify_cycle_task_end_date(obj):
-  modify_cycle_task_notification(obj, "{}_cycle_task_due_in".format(
-      obj.cycle_task_group.cycle.workflow.frequency))
-  modify_cycle_task_notification(obj, "cycle_task_due_today")
-
-
-def check_all_cycle_tasks_finished(cycle):
-  statuses = set([task.status for task in cycle.cycle_task_group_object_tasks])
-  acceptable_statuses = set(['Verified'])
-  return statuses.issubset(acceptable_statuses)
-
-
-def handle_cycle_task_status_change(obj, new_status, old_status):
-  if obj.status == "Declined":
-    notif_type = get_notification_type("cycle_task_declined")
-    add_notif(obj, notif_type)
-
-  elif obj.status == "Verified":
-    for notif in get_notification(obj):
-      db.session.delete(notif)
-
-    cycle = obj.cycle_task_group.cycle
-    if check_all_cycle_tasks_finished(cycle):
-      notif_type = get_notification_type("all_cycle_tasks_completed")
-      add_notif(cycle, notif_type)
-    db.session.flush()
+    pusher.get_notification_query(
+        obj.cycle,
+        **{"notification_names": ["all_cycle_tasks_completed"]}
+    ).delete(synchronize_session="fetch")
+    if obj.status == models.CycleTaskGroupObjectTask.DECLINED:
+      pusher.update_or_create_notifications(
+          obj, datetime.date.today(), "cycle_task_declined")
+    pusher.update_or_create_notifications(
+        obj,
+        obj.end_date,
+        get_notif_name_by_wf(obj.cycle.workflow),
+        "cycle_task_due_today",
+        "cycle_task_overdue")
 
 
 def handle_cycle_task_group_object_task_put(obj):
-  if inspect(obj).attrs.contact.history.has_changes():
-    add_cycle_task_reassigned_notification(obj)
-  if inspect(obj).attrs.end_date.history.has_changes():
-    modify_cycle_task_end_date(obj)
+  if inspect(obj).attrs._access_control_list.history.has_changes():
+    types = ["cycle_task_reassigned", "cycle_created", "manual_cycle_created"]
+    if not pusher.notification_exists_for(obj, notification_names=types):
+      pusher.push(obj, pusher.get_notification_type("cycle_task_reassigned"))
+  if inspect(obj).attrs.end_date.history.has_changes() and not obj.is_done:
+    # if you change end date to past than overdue
+    # notification should be send today
+    pusher.update_or_create_notifications(
+        obj,
+        obj.end_date,
+        get_notif_name_by_wf(obj.cycle.workflow),
+        "cycle_task_due_today",
+        "cycle_task_overdue")
 
 
-def remove_all_cycle_task_notifications(obj):
-  for cycle_task in obj.cycle_task_group_object_tasks:
-    for notif in get_notification(cycle_task):
-      db.session.delete(notif)
-
-
-def handle_cycle_modify(sender, obj=None, src=None, service=None):
+def handle_cycle_modify(obj):
+  if not inspect(obj).attrs.is_current.history.has_changes():
+    return
   if not obj.is_current:
-    remove_all_cycle_task_notifications(obj)
+    # delete all notifications for cycle tasks
+    pusher.get_notification_query(
+        *list(obj.cycle_task_group_object_tasks)
+    ).delete(synchronize_session="fetch")
 
 
-def handle_cycle_created(sender, obj=None, src=None, service=None,
-                         manually=False):
+def handle_cycle_created(obj, manually):
+  today = datetime.date.today()
+  if manually:
+    create_notification = "manual_cycle_created"
+  else:
+    create_notification = "cycle_created"
+  pusher.update_or_create_notifications(obj, today, create_notification)
+  if not obj.is_current:
+    return
+  task_notif_name = get_notif_name_by_wf(obj.workflow)
+  notification_names = [task_notif_name, create_notification,
+                        "cycle_task_overdue", "cycle_task_due_today"]
+  notif_dict = [pusher.get_notification_type(n) for n in notification_names]
+  tasks = list(obj.cycle_task_group_object_tasks)
+  query = pusher.get_notification_query(
+      *tasks,
+      **{"notification_names": notification_names})
+  exists_notifications = collections.defaultdict(set)
+  for notification in query:
+    exists_notifications[notification.notification_type_id].add(
+        notification.object_id)
 
-  notification = get_notification(obj)
-
-  if not notification:
-    db.session.flush()
-    notification_type = get_notification_type(
-        "manual_cycle_created" if manually else "cycle_created"
+  for notification_type in notif_dict:
+    object_ids = exists_notifications[notification_type.id]
+    repeatable_notification = (
+        notification_type.name in pusher.REPEATABLE_NOTIFICATIONS
     )
-    add_notif(obj, notification_type)
-
-  for cycle_task_group in obj.cycle_task_groups:
-    for task in cycle_task_group.cycle_task_group_tasks:
-      add_cycle_task_notifications(task, notification_type)
-
-
-def get_notification(obj):
-  # maybe we shouldn't return different thigs here.
-  result = Notification.query.filter(
-      and_(Notification.object_id == obj.id,
-           Notification.object_type == obj.type,
-           Notification.sent_at == None))  # noqa
-  return result.all()
-
-
-def get_notification_type(name):
-  return db.session.query(NotificationType).filter(
-      NotificationType.name == name).first()
-
-
-def add_notif(obj, notif_type, send_on=None):
-  if not send_on:
-    send_on = date.today()
-  notif = Notification(
-      object_id=obj.id,
-      object_type=obj.type,
-      notification_type=notif_type,
-      send_on=send_on,
-  )
-  db.session.add(notif)
+    for task in tasks:
+      if task.id in object_ids or task.is_done:
+        continue
+      if create_notification == notification_type.name:
+        send_on = today
+      else:
+        send_on = task.end_date
+      send_on -= datetime.timedelta(notification_type.advance_notice)
+      if repeatable_notification:
+        send_on = max(send_on, today)
+      if send_on >= today:
+        pusher.push(task, notification_type, send_on, repeatable_notification)

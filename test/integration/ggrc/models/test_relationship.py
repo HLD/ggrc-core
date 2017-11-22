@@ -1,94 +1,101 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
-from ggrc import db
-from ggrc.models.mixins import Base
-from ggrc.models.relationship import Relationship
-from ggrc.models.relationship import RelationshipAttr
+"""Module for integration tests for Relationship."""
+
+import json
+
+import ddt
+
+from ggrc.models import all_models
+
 from integration.ggrc import TestCase
-import ggrc
-import ggrc.builder
-import ggrc.services
-import random
-import werkzeug.exceptions
+from integration.ggrc import api_helper
+from integration.ggrc.models import factories
 
 
-class RelationshipTestMockModel(Base, ggrc.db.Model):
-  __tablename__ = 'relationship_test_mock_model'
-  foo = db.Column(db.String)
-
-  # REST properties
-  _publish_attrs = ['modified_by_id', 'foo']
-  _update_attrs = ['foo']
-
-  @staticmethod
-  def _validate_relationship_attr(cls, source, destination, old, name, value):
-    if cls.__name__ not in {source.type, destination.type}:
-      return None
-    if name != "validated_attr":
-      return None
-    try:
-      int(value)
-    except ValueError:
-      return None
-    return value
-
-
+@ddt.ddt
 class TestRelationship(TestCase):
+  """Integration test suite for Relationship."""
 
   def setUp(self):
+    """Create a Person, an Assessment, prepare a Relationship json."""
     super(TestRelationship, self).setUp()
-    if RelationshipTestMockModel.__table__.exists(db.engine):
-      RelationshipTestMockModel.__table__.drop(db.engine)
-    RelationshipTestMockModel.__table__.create(db.engine)
-    with self.client.session_transaction() as session:
-      session['permissions'] = {
-          "__GGRC_ADMIN__": {"__GGRC_ALL__": {"contexts": [0]}}
-      }
+    self.api = api_helper.Api()
+    self.client.get("/login")
+    self.person = factories.PersonFactory()
+    self.assessment = factories.AssessmentFactory()
 
-    self.m1 = self.mock_model()
-    self.m2 = self.mock_model()
-    self.rel = Relationship(source=self.m1, destination=self.m2)
-    db.session.add(self.rel)
+  HEADERS = {
+      "Content-Type": "application/json",
+      "X-requested-by": "GGRC",
+  }
+  REL_URL = "/api/relationships"
 
-  def mock_model(self, id=None, modified_by_id=1, **kwarg):
-    if 'id' not in kwarg:
-      kwarg['id'] = random.randint(0, 999999999)
-    if 'modified_by_id' not in kwarg:
-      kwarg['modified_by_id'] = 1
-    mock = RelationshipTestMockModel(**kwarg)
-    return mock
+  @staticmethod
+  def build_relationship_json(source, destination, **attrs):
+    return json.dumps([{
+        "relationship": {
+            "source": {"id": source.id, "type": source.type},
+            "destination": {"id": destination.id, "type": destination.type},
+            "context": {"id": None},
+            "attrs": attrs,
+        }
+    }])
 
-  def test_attrs_validation_ok(self):
-    self.rel.attrs["validated_attr"] = "123"
+  @ddt.data(
+      ("AssigneeType", "Creator", 200),
+      ("Invalid", "Data", 400),
+      ("AssigneeType", "Monkey", 400),
+  )
+  @ddt.unpack
+  def test_attrs_validation(self, attr, value, status_code):
+    """Test validation attrs on relationship creation."""
+    data = self.build_relationship_json(self.person,
+                                        self.assessment,
+                                        **{attr: value})
+    resp = self.client.post(self.REL_URL, data=data, headers=self.HEADERS)
+    self.assertStatus(resp, status_code)
 
-    db.session.commit()
+  def test_changing_log_on_doc_change(self):
+    """Changing object documents should generate new object revision."""
+    url_link = u"www.foo.com"
+    with factories.single_commit():
+      control = factories.ControlFactory()
+      url = factories.ReferenceUrlFactory(link=url_link)
 
-  def test_attrs_validation_invalid_attr(self):
-    self.rel.attrs["foo"] = "bar"
+    def get_revisions():
+      return all_models.Revision.query.filter(
+          all_models.Revision.resource_id == control.id,
+          all_models.Revision.resource_type == control.type,
+      ).order_by(
+          all_models.Revision.id.desc()
+      ).all()
 
-    with self.assertRaises(werkzeug.exceptions.BadRequest):
-      db.session.commit()
+    # attach an url to a control
+    revisions = get_revisions()
+    count = len(revisions)
+    response = self.client.post(
+        self.REL_URL,
+        data=self.build_relationship_json(control, url),
+        headers=self.HEADERS)
+    self.assert200(response)
 
-  def test_attrs_validation_invalid_value(self):
-    self.rel.attrs["validated_attr"] = "wrong value"
+    relationship = all_models.Relationship.query.get(
+        response.json[0][-1]["relationship"]["id"])
 
-    with self.assertRaises(werkzeug.exceptions.BadRequest):
-      db.session.commit()
+    # check if a revision was created and contains the attached url
+    revisions = get_revisions()
+    self.assertEqual(count + 1, len(revisions))
+    url_list = revisions[0].content.get("reference_url") or []
+    self.assertEqual(1, len(url_list))
+    self.assertIn("link", url_list[0])
+    self.assertEqual(url_link, url_list[0]["link"])
 
+    # now test whether a new revision is created when url is unmapped
+    self.assert200(self.api.delete(relationship))
 
-class TestRelationshipAttr(TestCase):
-
-  def test_gather_validators(self):
-    class ValidatorParent(object):
-      @staticmethod
-      def _validate_relationship_attr(cls):
-        return True
-
-    class ValidatorChild(ValidatorParent):
-      @staticmethod
-      def _validate_relationship_attr(cls):
-        return False
-
-    validators = RelationshipAttr._gather_validators(ValidatorChild)
-    self.assertEqual({True, False}, {v() for v in validators})
+    revisions = get_revisions()
+    self.assertEqual(count + 2, len(revisions))
+    url_list = revisions[0].content.get("reference_url") or []
+    self.assertEqual(url_list, [])

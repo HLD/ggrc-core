@@ -1,0 +1,103 @@
+{{!
+    Copyright (C) 2017 Google Inc.
+    Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+}}
+
+<div class="tree-item-wrapper {{extraClasses}}">
+  <div class="flex-box tree-item-content">
+    <tree-item-actions {instance}="instance"
+                       (expand)="onExpand()"
+                       (preview)="select($element)"
+                       {expanded}="expanded"
+                       {child-models-list}="childModelsList"
+                       {deep-limit}="limitDepthTree"
+    ></tree-item-actions>
+    <div class="flex-box selectable-attrs width-100" ($click)="onClick($element)">
+        {{#selectedColumns}}
+          {{! add alias because "this" is changed inside the switch-case block}}
+          {{#add_to_current_scope thisColumn=this}}
+          <div class="flex-box attr-cell">
+            {{#switch attr_type}}
+              {{#case 'custom'}}
+                <div class="custom attr-content">
+                  <tree-item-custom-attribute {instance}="instance"
+                                              {values}="instance.custom_attribute_values"
+                                              {column}="thisColumn"
+                  ></tree-item-custom-attribute>
+                </div>
+              {{/case}}
+
+              {{#case 'role'}}
+                <div class="roles attr-content">
+                    <tree-people-with-role-list-field
+                            {source}="instance"
+                            {role}="attr_name"/>
+                </div>
+              {{/case}}
+
+              {{#case 'default'}}
+                <div class="owner attr-content">
+                  {{#instance}}
+                    {{#switch type}}
+                      {{#case 'Audit'}}
+                        {{> '/static/mustache/audits/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'Control'}}
+                        {{> '/static/mustache/controls/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'Directive'}}
+                        {{> '/static/mustache/directives/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'Objective'}}
+                        {{> '/static/mustache/objectives/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'Person'}}
+                        {{> '/static/mustache/people/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'Program'}}
+                        {{> '/static/mustache/programs/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'Section'}}
+                        {{> '/static/mustache/sections/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'RiskAssessment'}}
+                        {{> '/static/mustache/risk_assessments/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'Workflow'}}
+                        {{> '/static/mustache/workflows/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'CycleTaskGroupObjectTask'}}
+                        {{> '/static/mustache/cycle_task_group_object_tasks/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#case 'TaskGroup'}}
+                        {{> '/static/mustache/task_groups/tree-item-attr.mustache'}}
+                      {{/case}}
+                      {{#default}}
+                        {{> '/static/mustache/base_objects/tree-item-attr.mustache'}}
+                      {{/default}}
+                    {{/switch}}
+                  {{/instance}}
+                </div>
+              {{/case}}
+           {{/switch}}
+          </div>
+          {{/add_to_current_scope}}
+        {{/selectedColumns}}
+    </div>
+
+    <cycle-task-actions {instance}="instance"></cycle-task-actions>
+
+    <tree-item-extra-info {instance}="instance"></tree-item-extra-info>
+  </div>
+
+  <lazy-render trigger="expanded">
+    <div class="sub-tier">
+      <sub-tree-wrapper {parent}="instance"
+                        {limit-depth-tree}="limitDepthTree"
+                        {child-models}="selectedChildModels"
+                        {get-depth-filter}="@getDepthFilter"
+                        {is-open}="expanded"
+      ></sub-tree-wrapper>
+    </div>
+  </lazy-render>
+</div>

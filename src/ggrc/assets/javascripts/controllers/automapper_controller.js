@@ -1,9 +1,9 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
-;(function (CMS, GGRC, can, $) {
+(function (CMS, GGRC, can, $) {
   var MIN_WAIT = 2000;
   var MAX_WAIT = 5000;
 
@@ -26,21 +26,13 @@
     },
     go: function () {
       var instances = this.instanceQueue;
-      var ids = $.map(instances, function (instance) {
-        return instance.id;
-      });
-      var filter = {automapping_id__in: ids.join()};
+      var rq = new RefreshQueue();
       this.lastRefresh = Date.now();
       this.instanceQueue = [];
-
-      CMS.Models.Relationship.findAll(filter).then(function (relationships) {
-        var rq = new RefreshQueue();
-        can.each(relationships.concat(instances), function (relationship) {
-          rq.enqueue(relationship.source);
-          rq.enqueue(relationship.destination);
-        });
-        rq.trigger();
+      can.each(instances, function (refreshInstance) {
+        rq.enqueue(getRefreshableObjects(refreshInstance));
       });
+      rq.trigger();
     }
   };
 
@@ -58,6 +50,7 @@
   var Controller = can.Control({
     '{CMS.Models.Relationship} created': function (model, ev, instance) {
       var limitExceeded;
+      var rq;
       if (instance instanceof CMS.Models.Relationship) {
         limitExceeded = instance.extras &&
           instance.extras.automapping_limit_exceeded;
@@ -66,12 +59,33 @@
         } else {
           refresher.refreshInstance(instance);
         }
+      } else if (instance instanceof CMS.Models.ObjectPerson) {
+        rq = new RefreshQueue();
+        rq.enqueue(instance.personable);
+        rq.trigger();
       }
     }
   });
 
+  function isPersonInstance(instance) {
+    return instance instanceof CMS.Models.ObjectPerson;
+  }
+
+  function getRefreshableObjects(instance) {
+    var result = [];
+
+    if (isPersonInstance(instance) && instance.personable) {
+      result.push(instance.personable);
+    } else {
+      result.push(instance.source);
+      result.push(instance.destination);
+    }
+
+    return result;
+  }
+
   $(function () {
     new Controller();
   });
-})(this.CMS, this.GGRC, this.can, this.can.$);
+})(window.CMS, window.GGRC, window.can, window.can.$);
 

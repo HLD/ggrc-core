@@ -1,27 +1,10 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
 (function (can) {
   var _mustachePath;
-  var overdueCompute;
-
-  overdueCompute = can.compute(function (val) {
-    var date;
-    var today = moment().startOf('day');
-    var startOfDate;
-    if (this.attr('status') === 'Verified') {
-      return '';
-    }
-    date = moment(this.attr('next_due_date') || this.attr('end_date'));
-    startOfDate = moment(date).startOf('day');
-    // TODO: [Overdue] Move this logic to helper.
-    if (date && today.diff(startOfDate, 'days') <= 0) {
-      return '';
-    }
-    return 'overdue';
-  });
 
   function refreshAttr(instance, attr) {
     if (instance.attr(attr).reify().selfLink) {
@@ -39,8 +22,12 @@
 
   function populateFromWorkflow(form, workflow) {
     if (!workflow || typeof workflow === 'string') {
-      // We need to invalidate the form, so we remove workflow if it's not set
+      // We need to invalidate the form, so we remove workflow and dependencies
+      // if it's not set
       form.removeAttr('workflow');
+      form.removeAttr('context');
+      form.removeAttr('cycle');
+      form.removeAttr('cycle_task_group');
       return;
     }
     if (workflow.reify) {
@@ -74,7 +61,9 @@
       form.attr('workflow', {id: workflow.id, type: 'Workflow'});
       form.attr('context', {id: workflow.context.id, type: 'Context'});
       form.attr('cycle', {id: activeCycle.id, type: 'Cycle'});
-      form.cycle_task_group = activeCycle.cycle_task_groups[0].id;
+
+      //reset cycle task group after workflow updating
+      form.removeAttr('cycle_task_group');
     });
   }
 
@@ -88,25 +77,30 @@
     create: 'POST /api/cycles',
     update: 'PUT /api/cycles/{id}',
     destroy: 'DELETE /api/cycles/{id}',
-
+    mixins: ['isOverdue'],
     attributes: {
       workflow: 'CMS.Models.Workflow.stub',
       cycle_task_groups: 'CMS.Models.CycleTaskGroup.stubs',
       modified_by: 'CMS.Models.Person.stub',
       context: 'CMS.Models.Context.stub'
     },
-
     tree_view_options: {
-      show_view: _mustachePath + '/tree.mustache',
-      header_view: _mustachePath + '/tree_header.mustache',
       draw_children: true,
-      child_options: [
-        {
-          model: 'CycleTaskGroup',
-          mapping: 'cycle_task_groups',
-          allow_creating: false
-        }
-      ]
+      attr_list: [{
+        attr_title: 'Title',
+        attr_name: 'title',
+        order: 10
+      }, {
+        attr_title: 'State ',
+        attr_name: 'status',
+        order: 15
+      }, {
+        attr_title: 'End Date',
+        attr_name: 'end_date',
+        order: 20
+      }],
+      mandatory_attr_name: ['title', 'status', 'end_date'],
+      disable_columns_configuration: true
     },
     init: function () {
       var that = this;
@@ -158,8 +152,7 @@
             });
         }
       });
-    },
-    overdue: overdueCompute
+    }
   });
 
   _mustachePath = GGRC.mustache_path + '/cycle_task_entries';
@@ -173,30 +166,17 @@
     update: 'PUT /api/cycle_task_entries/{id}',
     destroy: 'DELETE /api/cycle_task_entries/{id}',
     info_pane_options: {
-      attachments: {
-        mapping: 'documents',
-        show_view: GGRC.mustache_path + '/base_templates/attachment.mustache'
-      }
     },
     attributes: {
       cycle_task_group_object_task: 'CMS.Models.CycleTaskGroupObjectTask.stub',
       modified_by: 'CMS.Models.Person.stub',
       context: 'CMS.Models.Context.stub',
-      object_documents: 'CMS.Models.ObjectDocument.stubs',
-      documents: 'CMS.Models.Document.stubs',
       cycle: 'CMS.Models.Cycle.stub'
     },
 
     tree_view_options: {
       show_view: _mustachePath + '/tree.mustache',
-      footer_view: _mustachePath + '/tree_footer.mustache',
-      child_options: [{
-        // 0: Documents
-        model: 'Document',
-        mapping: 'documents',
-        show_view: _mustachePath + '/documents.mustache',
-        footer_view: _mustachePath + '/documents_footer.mustache'
-      }]
+      footer_view: _mustachePath + '/tree_footer.mustache'
     },
     init: function () {
       this._super.apply(this, arguments);
@@ -231,7 +211,7 @@
     create: 'POST /api/cycle_task_groups',
     update: 'PUT /api/cycle_task_groups/{id}',
     destroy: 'DELETE /api/cycle_task_groups/{id}',
-
+    mixins: ['isOverdue'],
     attributes: {
       cycle: 'CMS.Models.Cycle.stub',
       task_group: 'CMS.Models.TaskGroup.stub',
@@ -242,16 +222,7 @@
 
     tree_view_options: {
       sort_property: 'sort_index',
-      show_view: _mustachePath + '/tree.mustache',
-      draw_children: true,
-      child_options: [
-        {
-          title: 'Tasks',
-          model: 'CycleTaskGroupObjectTask',
-          mapping: 'cycle_task_group_tasks',
-          allow_creating: false
-        }
-      ]
+      draw_children: true
     },
 
     init: function () {
@@ -285,14 +256,13 @@
         }
       });
     }
-  }, {
-    overdue: overdueCompute
-  });
+  }, {});
 
   _mustachePath = GGRC.mustache_path + '/cycle_task_group_object_tasks';
   can.Model.Cacheable('CMS.Models.CycleTaskGroupObjectTask', {
     root_object: 'cycle_task_group_object_task',
     root_collection: 'cycle_task_group_object_tasks',
+    mixins: ['timeboxed', 'isOverdue', 'accessControlList', 'ca_update'],
     category: 'workflow',
     findAll: 'GET /api/cycle_task_group_object_tasks',
     findOne: 'GET /api/cycle_task_group_object_tasks/{id}',
@@ -305,14 +275,14 @@
       task_group_task: 'CMS.Models.TaskGroupTask.stub',
       cycle_task_entries: 'CMS.Models.CycleTaskEntry.stubs',
       modified_by: 'CMS.Models.Person.stub',
-      contact: 'CMS.Models.Person.stub',
       context: 'CMS.Models.Context.stub',
-      cycle: 'CMS.Models.Cycle.stub',
-      start_date: 'date',
-      end_date: 'date'
+      cycle: 'CMS.Models.Cycle.stub'
     },
     permalink_options: {
-      url: '<%= base.viewLink %>#current_widget/cycle/<%= instance.cycle.id %>/cycle_task_group/<%= instance.cycle_task_group.id %>/cycle_task_group_object_task/<%= instance.id %>',
+      url: '<%= base.viewLink %>#current_widget' +
+      '/cycle/<%= instance.cycle.id %>' +
+      '/cycle_task_group/<%= instance.cycle_task_group.id %>' +
+      '/cycle_task_group_object_task/<%= instance.id %>',
       base: 'cycle:workflow'
     },
     info_pane_options: {
@@ -329,64 +299,81 @@
     },
     tree_view_options: {
       sort_property: 'sort_index',
-      show_view: _mustachePath + '/tree.mustache',
+      attr_view: _mustachePath + '/tree-item-attr.mustache',
       attr_list: [
         {
-          attr_title: 'Title',
-          attr_name: 'title'
+          attr_title: 'Task title',
+          attr_name: 'title',
+          attr_sort_field: 'task title'
         },
         {
-          attr_title: 'Workflow',
+          attr_title: 'Cycle title',
           attr_name: 'workflow',
-          attr_sort_field: 'cycle.workflow.title'
+          attr_sort_field: 'cycle title'
         },
         {
-          attr_title: 'State',
-          attr_name: 'status'
+          attr_title: 'Task state',
+          attr_name: 'status',
+          attr_sort_field: 'task state'
         },
         {
-          attr_title: 'Assignee',
-          attr_name: 'assignee',
-          attr_sort_field: 'contact.name|email'
+          attr_title: 'Task start date',
+          attr_name: 'start_date',
+          attr_sort_field: 'task start date'
         },
         {
-          attr_title: 'Start Date',
-          attr_name: 'start_date'
+          attr_title: 'Task due date',
+          attr_name: 'end_date',
+          attr_sort_field: 'task due date'
         },
         {
-          attr_title: 'End Date',
-          attr_name: 'end_date'
+          attr_title: 'Task last updated',
+          attr_name: 'updated_at',
+          attr_sort_field: 'task last updated'
         },
         {
-          attr_title: 'Last Updated',
-          attr_name: 'updated_at'
+          attr_title: 'Task last updated by',
+          attr_name: 'modified_by',
+          attr_sort_field: 'task last updated by'
         }
       ],
-      display_attr_names: ['title', 'assignee', 'start_date'],
+      display_attr_names: ['title', 
+                           'Task Assignees', 
+                           'start_date', 
+                           'end_date'],
       mandatory_attr_name: ['title'],
-      draw_children: true,
-      child_options: [
-        {
-          model: 'CycleTaskEntry',
-          mapping: 'cycle_task_entries',
-          allow_creating: true
-        },
-        {
-          model: can.Model.Cacheable,
-          mapping: 'info_related_objects',
-          allow_creating: true
-        }
-      ]
+      draw_children: true
+    },
+    sub_tree_view_options: {
+      default_filter: ['Control'],
     },
     init: function () {
       var that = this;
+      var assigneeRole = _.find(GGRC.access_control_roles, {
+        object_type: 'CycleTaskGroupObjectTask',
+        name: 'Task Assignees',
+      });
       this._super.apply(this, arguments);
       this.validateNonBlank('title');
       this.validateNonBlank('workflow');
       this.validateNonBlank('cycle');
-      this.validateContact(['_transient.contact', 'contact']);
+      this.validateNonBlank('cycle_task_group');
       this.validateNonBlank('start_date');
       this.validateNonBlank('end_date');
+
+      // instance.attr('access_control_list')
+      //   .replace(...) doesn't raise change event
+      // that's why we subscribe on access_control_list.length
+      this.validate('access_control_list.length', function () {
+        var that = this;
+        var hasAssignee = assigneeRole && _.some(that.access_control_list, {
+          ac_role_id: assigneeRole.id,
+        });
+
+        if (!hasAssignee) {
+          return 'No valid contact selected for assignee';
+        }
+      });
 
       this.bind('updated', function (ev, instance) {
         if (instance instanceof that) {
@@ -398,70 +385,58 @@
       });
     }
   }, {
-    overdue: overdueCompute,
     _workflow: function () {
       return this.refresh_all('cycle', 'workflow').then(function (workflow) {
         return workflow;
       });
     },
     set_properties_from_workflow: function (workflow) {
-      // The form sometimes returns plaintext instead of object, return in that case
-      if (typeof workflow === 'string') {
+      // The form sometimes returns plaintext instead of object,
+      // return in that case
+      // If workflow is empty form should be invalidated
+      if (typeof workflow === 'string' && workflow !== '') {
         return;
       }
       populateFromWorkflow(this, workflow);
     },
-    form_preload: function (newObjectForm) {
+    form_preload: function (newObjectForm, objectParams) {
       var form = this;
       var workflows;
       var _workflow;
       var cycle;
-      var person = {
-        id: GGRC.current_user.id,
-        type: 'Person'
-      };
 
       if (newObjectForm) {
         // prepopulate dates with default ones
         this.attr('start_date', new Date());
         this.attr('end_date', moment().add({month: 3}).toDate());
 
-        if (!form.contact) {
-          form.attr('contact', person);
-          form.attr('_transient.contact', person);
+        // if we are creating a task from the workflow page, the preset
+        // workflow should be that one
+        if (objectParams && objectParams.workflow !== undefined) {
+          populateFromWorkflow(form, objectParams.workflow);
+          return;
         }
 
-        // using setTimeout to execute this after the modal is loaded
-        // so we can see when the workflow is already set and use that one
-        setTimeout(function () {
-          // if we are creating a task from the workflow page, the preset
-          // workflow should be that one
-          if (form.workflow !== undefined) {
-            populateFromWorkflow(form, form.workflow);
+        workflows = CMS.Models.Workflow.findAll({
+          kind: 'Backlog', status: 'Active', __sort: '-created_at'});
+        workflows.then(function (workflowList) {
+          if (!workflowList.length) {
+            $(document.body).trigger(
+              'ajax:flash',
+              {warning: 'No Backlog' +
+              ' workflows found!' +
+              ' Contact your administrator to enable this functionality.',
+              }
+            );
             return;
           }
-
-          workflows = CMS.Models.Workflow.findAll({
-            kind: 'Backlog', status: 'Active', __sort: '-created_at'});
-          workflows.then(function (workflowList) {
-            if (!workflowList.length) {
-              $(document.body).trigger(
-                'ajax:flash',
-                {warning: 'No Backlog workflows found! Contact your administrator to enable this functionality.'}
-              );
-              return;
-            }
-            _workflow = workflowList[0];
-            populateFromWorkflow(form, _workflow);
-          });
-        }, 0);
+          _workflow = workflowList[0];
+          populateFromWorkflow(form, _workflow);
+        });
       } else {
         cycle = form.cycle.reify();
         if (!_.isUndefined(cycle.workflow)) {
           form.attr('workflow', cycle.workflow.reify());
-        }
-        if (this.contact) {
-          this.attr('_transient.contact', this.contact);
         }
       }
     },
@@ -472,26 +447,20 @@
         return object;
       });
     },
-    response_options_csv: can.compute(function (val) {
-      if (val != null) {
-        this.attr(
-          'response_options',
-          $.map(val.split(','), $.proxy(''.trim.call, ''.trim))
-        );
-      } else {
-        return (this.attr('response_options') || []).join(', ');
-      }
-    }),
 
-    selected_response_options_csv: can.compute(function (val) {
-      if (val != null) {
-        this.attr(
-          'selected_response_options',
-          $.map(val.split(','), $.proxy(''.trim.call, ''.trim))
-        );
-      } else {
-        return (this.attr('selected_response_options') || []).join(', ');
-      }
-    })
+    /**
+     * Determine whether the Task's response options can be edited, taking
+     * the Task and Task's Cycle status into account.
+     *
+     * @return {Boolean} - true if editing response options is allowed,
+     *   false otherwise
+     */
+    responseOptionsEditable: function () {
+      var cycle = this.attr('cycle').reify();
+      var status = this.attr('status');
+
+      return cycle.attr('is_current') &&
+        !_.contains(['Finished', 'Verified'], status);
+    }
   });
 })(window.can);

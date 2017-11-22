@@ -1,5 +1,6 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
+"Pathes definition."
 
 VIRTUALENV_DIR = "virtual_env/"
 BIN_DIR = "bin/"
@@ -11,3 +12,4 @@ REQUIREMENTS = "requirements.txt"
 SRC = "src/"
 CHROME_DRIVER = "chromedriver.log"
 TEST_RUNNER = "test_runner.log"
+EXPORTED_FILE_NAME = "export_objects.csv"

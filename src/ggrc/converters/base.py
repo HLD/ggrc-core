@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Base objects for csv file converters."""
@@ -6,10 +6,12 @@
 from collections import defaultdict
 
 from ggrc import settings
+from ggrc.utils import benchmark
 from ggrc.utils import structures
 from ggrc.cache.memcache import MemCache
 from ggrc.converters import get_exportables
 from ggrc.converters.base_block import BlockConverter
+from ggrc.converters.snapshot_block import SnapshotBlockConverter
 from ggrc.converters.import_helper import extract_relevant_data
 from ggrc.converters.import_helper import split_array
 from ggrc.fulltext import get_indexer
@@ -29,7 +31,8 @@ class Converter(object):
       "Program",
       "Risk Assessment",
       "Audit",
-      "Request",
+      "Issue",
+      "Assessment",
       "Policy",
       "Regulation",
       "Standard",
@@ -48,6 +51,7 @@ class Converter(object):
       "slug",
       "delete",
       "task_type",
+      "audit",
   ]
 
   def __init__(self, **kwargs):
@@ -62,9 +66,12 @@ class Converter(object):
     self.indexer = get_indexer()
 
   def to_array(self):
-    self.block_converters_from_ids()
-    self.handle_row_data()
-    return self.to_block_array()
+    with benchmark("Create block converters"):
+      self.block_converters_from_ids()
+    with benchmark("Handle row data"):
+      self.handle_row_data()
+    with benchmark("Make block array"):
+      return self.to_block_array()
 
   def to_block_array(self):
     """ exporting each in it's own block separated by empty lines
@@ -84,12 +91,21 @@ class Converter(object):
       csv_data.extend(block_data)
     return csv_data
 
+  def _start_compute_attributes_job(self):
+    from ggrc import views
+    revision_ids = []
+    for block_converter in self.block_converters:
+      revision_ids.extend(block_converter.revision_ids)
+    if revision_ids:
+      views.start_compute_attributes(revision_ids)
+
   def import_csv(self):
     self.block_converters_from_csv()
     self.row_converters_from_csv()
     self.handle_priority_columns()
     self.import_objects()
     self.import_secondary_objects()
+    self._start_compute_attributes_job()
     self.drop_cache()
 
   def handle_priority_columns(self):
@@ -116,11 +132,16 @@ class Converter(object):
       object_class = object_map[class_name]
       object_ids = object_data.get("ids", [])
       fields = object_data.get("fields")
-      block_converter = BlockConverter(self, object_class=object_class,
-                                       fields=fields, object_ids=object_ids,
-                                       class_name=class_name)
-      block_converter.row_converters_from_ids()
-      self.block_converters.append(block_converter)
+      if class_name == "Snapshot":
+        self.block_converters.append(
+            SnapshotBlockConverter(self, object_ids, fields=fields))
+      else:
+        block_converter = BlockConverter(self, object_class=object_class,
+                                         fields=fields, object_ids=object_ids,
+                                         class_name=class_name)
+        block_converter.check_block_restrictions()
+        block_converter.row_converters_from_ids()
+        self.block_converters.append(block_converter)
 
   def block_converters_from_csv(self):
     """Prepare BlockConverters and order them like specified in
@@ -136,6 +157,7 @@ class Converter(object):
       block_converter = BlockConverter(self, object_class=object_class,
                                        rows=rows, raw_headers=raw_headers,
                                        offset=offset, class_name=class_name)
+      block_converter.check_block_restrictions()
       self.block_converters.append(block_converter)
 
     order = defaultdict(int)
@@ -158,7 +180,7 @@ class Converter(object):
     return self.response_data
 
   def get_object_names(self):
-    return [c.object_class.__name__ for c in self.block_converters]
+    return [c.name for c in self.block_converters]
 
   @classmethod
   def drop_cache(cls):

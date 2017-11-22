@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """A module containing the workflow WorkflowPerson model."""
@@ -7,10 +7,11 @@
 from sqlalchemy.orm import backref
 
 from ggrc import db
-from ggrc.models.mixins import Mapping
+from ggrc.models.mixins import Base
+from ggrc.models import reflection
 
 
-class WorkflowPerson(Mapping, db.Model):
+class WorkflowPerson(Base, db.Model):
   """Workflow WorkflowPerson model."""
 
   __tablename__ = 'workflow_people'
@@ -36,10 +37,10 @@ class WorkflowPerson(Mapping, db.Model):
         db.Index('ix_person_id', 'person_id'),
     )
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'workflow',
       'person',
-  ]
+  )
   _sanitize_html = []
 
   @classmethod

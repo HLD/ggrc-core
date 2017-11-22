@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Data handlers for notifications for objects in ggrc module.
@@ -9,10 +9,26 @@ Main contributed functions are:
 
 import datetime
 import urlparse
+
+from collections import defaultdict
+from collections import namedtuple
 from logging import getLogger
 
+import pytz
+from pytz import timezone
+from sqlalchemy import and_
+
+from ggrc import db
 from ggrc import models
+from ggrc import notifications
 from ggrc import utils
+from ggrc.utils import DATE_FORMAT_US
+from ggrc.models.reflection import AttributeInfo
+
+
+# a helper type for storing comments' parent object information
+ParentObjInfo = namedtuple(
+    "ParentObjInfo", ["id", "object_type", "title", "url"])
 
 
 # pylint: disable=invalid-name
@@ -33,6 +49,116 @@ def get_object_url(obj):
   return urlparse.urljoin(utils.get_url_root(), url)
 
 
+def as_user_time(utc_datetime):
+  """Convert a UTC time stamp to a localized user-facing string.
+
+  Args:
+    utc_datetime: naive datetime.datetime, intepreted as being in UTC
+
+  Returns:
+    A user-facing string representing the given time in a localized format.
+  """
+  # NOTE: For the time being, the majority of users are located in US/Pacific
+  # time zone, thus the latter is used to convert UTC times read from database.
+  pacific_tz = timezone("US/Pacific")
+  datetime_format = DATE_FORMAT_US + " %H:%M:%S %Z"
+
+  local_time = utc_datetime.replace(tzinfo=pytz.utc).astimezone(pacific_tz)
+  return local_time.strftime(datetime_format)
+
+
+def _get_updated_roles(new_list, old_list, roles):
+  """Get difference between old and new access control lists"""
+  new_dict = defaultdict(set)
+  for new_val in new_list:
+    role_id = new_val["ac_role_id"]
+    person_id = new_val["person_id"]
+    new_dict[role_id].add(person_id)
+
+  old_dict = defaultdict(set)
+  for old_val in old_list:
+    role_id = old_val["ac_role_id"]
+    person_id = old_val["person_id"]
+    old_dict[role_id].add(person_id)
+
+  diff_roles = set(new_dict.keys()) ^ set(old_dict.keys())
+  role_set = {roles[role_id] for role_id in diff_roles}
+
+  common_roles = set(new_dict.keys()) & set(old_dict.keys())
+  for role_id in common_roles:
+    if sorted(new_dict[role_id]) != sorted(old_dict[role_id]):
+      role_set.add(roles[role_id])
+
+  return role_set
+
+
+def _get_revisions(obj, created_at):
+  """Get current revision and revision before notification is created"""
+  new_rev = db.session.query(models.Revision) \
+      .filter_by(resource_id=obj.id, resource_type=obj.type) \
+      .order_by(models.Revision.id.desc()) \
+      .first()
+  old_rev = db.session.query(models.Revision) \
+      .filter_by(resource_id=obj.id, resource_type=obj.type) \
+      .filter(and_(models.Revision.created_at < created_at,
+                   models.Revision.id < new_rev.id)) \
+      .order_by(models.Revision.id.desc()) \
+      .first()
+  if not old_rev:
+    old_rev = db.session.query(models.Revision) \
+        .filter_by(resource_id=obj.id, resource_type=obj.type) \
+        .filter(and_(models.Revision.created_at == created_at,
+                     models.Revision.id < new_rev.id)) \
+        .order_by(models.Revision.id) \
+        .first()
+  return new_rev, old_rev
+
+
+def _get_updated_fields(obj, created_at, definitions, roles):
+  """Get dict of updated  attributes of assessment"""
+  fields = []
+
+  new_rev, old_rev = _get_revisions(obj, created_at)
+  if not old_rev:
+    return []
+
+  new_attrs = new_rev.content
+  old_attrs = old_rev.content
+  for attr_name, new_val in new_attrs.iteritems():
+    if attr_name in notifications.IGNORE_ATTRS:
+      continue
+    old_val = old_attrs.get(attr_name, None)
+    if old_val != new_val:
+      if not old_val and not new_val:
+        continue
+      if attr_name == u"recipients" and old_val and new_val and \
+         sorted(old_val.split(",")) == sorted(new_val.split(",")):
+        continue
+      if attr_name == "access_control_list":
+        fields.extend(_get_updated_roles(new_val, old_val, roles))
+        continue
+      fields.append(attr_name)
+
+  fields.extend(list(notifications.get_updated_cavs(new_attrs, old_attrs)))
+  updated_fields = []
+  for field in fields:
+    definition = definitions.get(field, None)
+    if definition:
+      updated_fields.append(definition["display_name"].upper())
+    else:
+      updated_fields.append(field.upper())
+  return updated_fields
+
+
+def _get_assignable_roles(obj):
+  """Get access control roles for assignable"""
+  query = db.session.query(
+      models.AccessControlRole.id,
+      models.AccessControlRole.name).filter_by(
+      object_type=obj.__class__.__name__)
+  return {role_id: name for role_id, name in query}
+
+
 def _get_assignable_dict(people, notif):
   """Get dict data for assignable object in notification.
 
@@ -46,19 +172,31 @@ def _get_assignable_dict(people, notif):
   """
   obj = get_notification_object(notif)
   data = {}
+
+  definitions = AttributeInfo.get_object_attr_definitions(obj.__class__)
+  roles = _get_assignable_roles(obj)
+
   for person in people:
-    # Requests have "requested_on" field instead of "start_date" and we should
-    # default to today() if no appropriate field is found on the object.
-    start_date = getattr(obj, "start_date",
-                         getattr(obj, "requested_on",
-                                 datetime.date.today()))
+    # We should default to today() if no start date is found on the object.
+    start_date = getattr(obj, "start_date", datetime.date.today())
     data[person.email] = {
         "user": get_person_dict(person),
         notif.notification_type.name: {
             obj.id: {
                 "title": obj.title,
-                "fuzzy_start_date": utils.get_fuzzy_date(start_date),
+                "start_date_statement": utils.get_digest_date_statement(
+                    start_date, "start", True),
                 "url": get_object_url(obj),
+                "notif_created_at": {
+                    notif.id: as_user_time(notif.created_at)},
+                "notif_updated_at": {
+                    notif.id: as_user_time(notif.updated_at)},
+                "updated_fields": _get_updated_fields(obj,
+                                                      notif.created_at,
+                                                      definitions,
+                                                      roles)
+                if notif.notification_type.name == "assessment_updated"
+                else None,
             }
         }
     }
@@ -67,6 +205,27 @@ def _get_assignable_dict(people, notif):
 
 def assignable_open_data(notif):
   """Get data for open assignable object.
+
+  Args:
+    notif (Notification): Notification entry for an open assignable object.
+
+  Returns:
+    A dict containing all notification data for the given notification.
+  """
+  obj = get_notification_object(notif)
+  if not obj:
+    logger.warning(
+        '%s for notification %s not found.',
+        notif.object_type, notif.id,
+    )
+    return {}
+  people = [person for person, _ in obj.assignees]
+
+  return _get_assignable_dict(people, notif)
+
+
+def assignable_updated_data(notif):
+  """Get data for updated assignable object.
 
   Args:
     notif (Notification): Notification entry for an open assignable object.
@@ -96,12 +255,8 @@ def _get_declined_people(obj):
     A list of people that should receive a declined notification according to
     the given object type.
   """
-  if obj.type == "Request":
-    return [person for person, role in obj.assignees
-            if "Requester" in role]
-  elif obj.type == "Assessment":
-    return [person for person, role in obj.assignees
-            if "Assessor" in role]
+  if obj.type == "Assessment":
+    return [person for person, _ in obj.assignees]
   return []
 
 
@@ -200,28 +355,64 @@ def get_assignable_data(notif):
     Dict with all data for the assignable notification or an empty dict if the
     notification is not for a valid assignable object.
   """
-  if notif.object_type not in {"Request", "Assessment"}:
+  if notif.object_type not in {"Assessment"}:
     return {}
-  elif notif.notification_type.name.endswith("_open"):
-    return assignable_open_data(notif)
-  elif notif.notification_type.name.endswith("_declined"):
-    return assignable_declined_data(notif)
-  elif notif.notification_type.name.endswith("_reminder"):
-    return assignable_reminder(notif)
+
+  # a map of notification type suffixes to functions that fetch data for those
+  # notification types
+  data_handlers = {
+      "_open": assignable_open_data,
+      "_started": assignable_open_data,  # reuse logic, same data needed
+      "_updated": assignable_updated_data,
+      "_completed": assignable_updated_data,
+      "_ready_for_review": assignable_updated_data,
+      "_verified": assignable_updated_data,
+      "_reopened": assignable_updated_data,
+      "_declined": assignable_declined_data,
+      "_reminder": assignable_reminder,
+  }
+
+  notif_type = notif.notification_type.name
+
+  for suffix, data_handler in data_handlers.iteritems():
+    if notif_type.endswith(suffix):
+      return data_handler(notif)
+
   return {}
 
 
 def generate_comment_notification(obj, comment, person):
+  """Prepare notification data for a comment that was posted on an object.
+
+  Args:
+    obj: the object the comment was posted on
+    comment: a Comment instance
+    person: the person to be notified about the comment
+
+  Returns:
+    Dictionary with data needed for the comment notification email.
+  """
+  parent_info = ParentObjInfo(
+      obj.id,
+      obj._inflector.title_singular.title(),
+      obj.title,
+      get_object_url(obj)
+  )
+
   return {
       "user": get_person_dict(person),
       "comment_created": {
-          comment.id: {
-              "description": comment.description,
-              "commentator": get_person_dict(comment.modified_by),
-              "parent_type": obj._inflector.title_singular.title(),
-              "parent_id": obj.id,
-              "parent_url": get_object_url(obj),
-              "parent_title": obj.title
+          parent_info: {
+              comment.id: {
+                  "description": comment.description,
+                  "commentator": get_person_dict(comment.modified_by),
+                  "parent_type": parent_info.object_type,
+                  "parent_id": parent_info.id,
+                  "parent_url": get_object_url(obj),
+                  "parent_title": obj.title,
+                  "created_at": comment.created_at,
+                  "created_at_str": as_user_time(comment.created_at)
+              }
           }
       }
   }
@@ -245,12 +436,10 @@ def get_comment_data(notif):
   recipients = set()
   comment = get_notification_object(notif)
   comment_obj = None
-  rel = (models.Relationship.find_related(comment, models.Request()) or
-         models.Relationship.find_related(comment, models.Assessment()))
+  rel = models.Relationship.find_related(comment, models.Assessment())
 
   if rel:
-    comment_obj = (rel.Request_destination or rel.Request_source or
-                   rel.Assessment_destination or rel.Assessment_source)
+    comment_obj = rel.Assessment_destination or rel.Assessment_source
   if not comment_obj:
     logger.warning('Comment object not found for notification %s', notif.id)
     return {}

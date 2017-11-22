@@ -1,21 +1,19 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Metaclasses module"""
 
 import pytest
 
-from lib import exception
-from lib import constants
-from lib import environment
+from lib import exception, constants, environment
 
 
 class DecorateFlakyTests(type):
   # todo: this should be refactored to DecorateMethods and used with a
   # factory
-  """Decorates all test methods with a decorator that repeats a failed test a
-  couple of times
-  """
+  """Decorates all test methods with decorator that repeats failed test
+ couple of times
+ """
 
   def __new__(mcs, name, bases, dct):
     for attr_name, value in dct.items():

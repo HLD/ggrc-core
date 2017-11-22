@@ -1,10 +1,11 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 import os
 
 DEBUG = True
 TESTING = True
+LOGIN_DISABLED = False
 PRODUCTION = False
 HOST = '0.0.0.0'
 SQLALCHEMY_DATABASE_URI = 'mysql+mysqldb://root:root@{}/ggrcdevtest'.format(

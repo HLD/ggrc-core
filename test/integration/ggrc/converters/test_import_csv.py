@@ -1,17 +1,21 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 """Tests for basic csv imports."""
 
+from collections import OrderedDict
+
 from ggrc import models
 from ggrc.converters import errors
-from integration.ggrc import converters
+from integration.ggrc import TestCase
 from integration.ggrc import generator
+from integration.ggrc.models import factories
 
 
-class TestBasicCsvImport(converters.TestCase):
+class TestBasicCsvImport(TestCase):
+  """Test basic CSV imports."""
 
   def setUp(self):
-    converters.TestCase.setUp(self)
+    super(TestBasicCsvImport, self).setUp()
     self.generator = generator.ObjectGenerator()
     self.client.get("/login")
 
@@ -26,6 +30,7 @@ class TestBasicCsvImport(converters.TestCase):
       }, "Administrator")
 
   def test_policy_basic_import(self):
+    """Test basic policy import."""
     filename = "policy_basic_import.csv"
     self.import_file(filename)
     policies = models.Policy.query.count()
@@ -33,25 +38,32 @@ class TestBasicCsvImport(converters.TestCase):
     revisions = models.Revision.query.filter(
         models.Revision.resource_type == "Policy"
     ).count()
-    self.assertEqual(revisions, 3)
+    self.assertEqual(revisions, 6)
     policy = models.Policy.eager_query().first()
     self.assertEqual(policy.modified_by.email, "user@example.com")
 
   def test_policy_import_working_with_warnings(self):
+    """Test Policy import with warnings."""
     def test_owners(policy):
-      self.assertNotEqual([], policy.owners)
-      self.assertEqual("user@example.com", policy.owners[0].email)
+      self.assertNotEqual([], policy.access_control_list)
+      self.assertEqual(
+          "user@example.com",
+          policy.access_control_list[0].person.email
+      )
+      owner = models.Person.query.filter_by(email="user@example.com").first()
+      self.assert_roles(policy, Admin=owner)
+
     filename = "policy_import_working_with_warnings.csv"
     response_json = self.import_file(filename)
 
-    expected_warnings = set([
+    expected_warnings = {
         errors.UNKNOWN_USER_WARNING.format(line=3, email="miha@policy.com"),
         errors.UNKNOWN_OBJECT.format(
             line=3, object_type="Program", slug="p753"),
-        errors.OWNER_MISSING.format(line=4, column_name="Owner"),
+        errors.OWNER_MISSING.format(line=4, column_name="Admin"),
         errors.UNKNOWN_USER_WARNING.format(line=6, email="not@a.user"),
-        errors.OWNER_MISSING.format(line=6, column_name="Owner"),
-    ])
+        errors.OWNER_MISSING.format(line=6, column_name="Admin"),
+    }
     response_warnings = response_json[0]["row_warnings"]
     self.assertEqual(expected_warnings, set(response_warnings))
     response_errors = response_json[0]["row_errors"]
@@ -60,13 +72,18 @@ class TestBasicCsvImport(converters.TestCase):
 
     policies = models.Policy.query.all()
     self.assertEqual(len(policies), 4)
-    for policy in policies:
-      test_owners(policy)
+    # Only 1 and 3 policies should have owners
+    test_owners(policies[0])
+    test_owners(policies[2])
 
   def test_policy_same_titles(self):
+    """Test Policy imports with title collisions."""
     def test_owners(policy):
-      self.assertNotEqual([], policy.owners)
-      self.assertEqual("user@example.com", policy.owners[0].email)
+      self.assertNotEqual([], policy.access_control_list)
+      self.assertEqual("user@example.com",
+                       policy.access_control_list[0].person.email)
+      owner = models.Person.query.filter_by(email="user@example.com").first()
+      self.assert_roles(policy, Admin=owner)
 
     filename = "policy_same_titles.csv"
     response_json = self.import_file(filename)
@@ -76,7 +93,7 @@ class TestBasicCsvImport(converters.TestCase):
     self.assertEqual(0, response_json[0]["updated"])
     self.assertEqual(9, response_json[0]["rows"])
 
-    expected_errors = set([
+    expected_errors = {
         errors.DUPLICATE_VALUE_IN_CSV.format(
             line_list="3, 4, 6, 10, 11", column_name="Title",
             value="A title", s="s", ignore_lines="4, 6, 10, 11"),
@@ -86,7 +103,7 @@ class TestBasicCsvImport(converters.TestCase):
         errors.DUPLICATE_VALUE_IN_CSV.format(
             line_list="8, 9, 10, 11", column_name="Code", value="code",
             s="s", ignore_lines="9, 10, 11"),
-    ])
+    }
     response_errors = response_json[0]["row_errors"]
     self.assertEqual(expected_errors, set(response_errors))
 
@@ -127,18 +144,17 @@ class TestBasicCsvImport(converters.TestCase):
     ])
 
   def test_assessments_import_update(self):
-    messages = ("block_errors", "block_warnings", "row_errors", "row_warnings")
+    """Test for updating Assessment with import
 
+    Checks for fields being updarted correctly
+    """
     filename = "pci_program.csv"
     response = self.import_file(filename)
 
-    for response_block in response:
-      for message in messages:
-        self.assertEqual(set(), set(response_block[message]))
+    self._check_csv_response(response, {})
 
     assessment = models.Assessment.query.filter_by(slug="CA.PCI 1.1").first()
     audit = models.Audit.query.filter_by(slug="AUDIT-Consolidated").first()
-    self.assertEqual(assessment.contact.email, "danny@reciprocitylabs.com")
     self.assertEqual(assessment.design, "Effective")
     self.assertEqual(assessment.operationally, "Effective")
     self.assertIsNone(models.Relationship.find_related(assessment, audit))
@@ -146,27 +162,30 @@ class TestBasicCsvImport(converters.TestCase):
     filename = "pci_program_update.csv"
     response = self.import_file(filename)
 
-    for response_block in response:
-      for message in messages:
-        self.assertEqual(set(), set(response_block[message]))
+    self._check_csv_response(response, {
+        "Assessment": {
+            "row_warnings": {
+                errors.UNMODIFIABLE_COLUMN.format(line=3, column_name="Audit")
+            }
+        }
+    })
 
     assessment = models.Assessment.query.filter_by(slug="CA.PCI 1.1").first()
     audit = models.Audit.query.filter_by(slug="AUDIT-Consolidated").first()
-    self.assertEqual(assessment.contact.email, "albert@reciprocitylabs.com")
     self.assertEqual(assessment.design, "Needs improvement")
     self.assertEqual(assessment.operationally, "Ineffective")
-    self.assertIsNotNone(models.Relationship.find_related(assessment, audit))
+    self.assertIsNone(models.Relationship.find_related(assessment, audit))
 
   def test_person_imports(self):
     """Test imports for Person object with user roles."""
     filename = "people_test.csv"
     response = self.import_file(filename)[0]
 
-    expected_errors = set([
+    expected_errors = {
         errors.MISSING_VALUE_ERROR.format(line=8, column_name="Email"),
         errors.WRONG_VALUE_ERROR.format(line=10, column_name="Email"),
         errors.WRONG_VALUE_ERROR.format(line=11, column_name="Email"),
-    ])
+    }
 
     self.assertEqual(expected_errors, set(response["row_errors"]))
     self.assertEqual(0, models.Person.query.filter_by(email=None).count())
@@ -179,7 +198,7 @@ class TestBasicCsvImport(converters.TestCase):
     self.assertEqual(0, len(response["row_warnings"]))
     self.assertEqual(0, len(response["row_errors"]))
 
-  def test_duplicate_people_objective_error(self):
+  def test_duplicate_people_objective(self):
     """Test duplicate error that causes request to fail."""
     self.generator.generate_object(models.Objective, {"slug": "objective1"})
     filename = "duplicate_object_person_objective_error.csv"
@@ -187,3 +206,34 @@ class TestBasicCsvImport(converters.TestCase):
 
     self.assertEqual(0, len(response["row_warnings"]))
     self.assertEqual(0, len(response["row_errors"]))
+
+  def test_audit_import_context(self):
+    """Test audit context on edits via import."""
+    factories.ProgramFactory(slug="p")
+    response = self.import_data(OrderedDict([
+        ("object_type", "Audit"),
+        ("Code*", "audit"),
+        ("title", "audit"),
+        ("Audit Captain", "user@example.com"),
+        ("status", "In Progress"),
+        ("program", "P"),
+    ]))
+    self._check_csv_response(response, {})
+
+    audit = models.Audit.query.first()
+    program = models.Program.query.first()
+    self.assertNotEqual(audit.context_id, program.context_id)
+
+    response = self.import_data(OrderedDict([
+        ("object_type", "Audit"),
+        ("Code*", "audit"),
+        ("title", "audit"),
+        ("Audit Captain", "user@example.com"),
+        ("status", "In Progress"),
+        ("program", "P"),
+    ]))
+    self._check_csv_response(response, {})
+
+    audit = models.Audit.query.first()
+    program = models.Program.query.first()
+    self.assertNotEqual(audit.context_id, program.context_id)

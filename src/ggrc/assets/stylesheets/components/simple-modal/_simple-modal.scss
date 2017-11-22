@@ -1,108 +1,208 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
+$simple-modal-header-height: 54px;
+$grid-data-toolbar-height: 42px;
+$grid-data-header-height: 66px;
+
 .simple-modal__overlay {
   position: fixed;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.65);
   top: 0;
   left: 0;
-  z-index: -2;
-
-  &.simple-modal__overlay-open {
-    opacity: 1;
-    z-index: 3299;
-    transition: opacity 0.2s ease;
-  }
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  z-index: zIndex(simple-model-overlay);
+  flex-direction: column;
 }
 
 .simple-modal {
+  text-align: left;
+  border-radius: 2px;
   box-sizing: border-box;
   width: auto;
-  max-width: 700px;
-  min-width: 400px;
-  position: fixed;
-  z-index: -1;
-  opacity: 0;
-  top: 0;
-  left: 0;
+  max-width: 75%;
+  min-width: 33%;
   margin: 0;
   border: 0;
-  background: transparent;
+  background: $white;
   box-shadow: 0 3px 7px rgba(0, 0, 0, 0.3);
-  /* Specific Styles for Prior Responses Modal Window */
-  &.related-assessments {
-    max-width: 932px;
+  flex: 0 1;
 
-    .modal-body {
-      overflow: hidden;
-      max-height: none;
-      height: 500px;
-    }
-    .grid-data-body {
-      font-size: 13px;
-      width: 900px;
-      max-height: 380px;
-      box-sizing: border-box;
-      overflow: auto;
-    }
+  &__toolbar {
+    display: flex;
+    flex-direction: row-reverse;
+    box-sizing: border-box;
   }
 
-  &.simple-modal-open {
-    opacity: 1;
-    z-index: 3300;
-    border-radius: 6px;
-    transition: opacity 0.2s ease;
+  &__toolbar-item {
+    margin: 0 0 0 8px;
   }
 
-  .modal-body {
+  &__body {
     box-sizing: border-box;
     padding: 16px;
     overflow: auto;
     background: $white;
     margin: 0;
-  }
 
-  .modal-header {
-    background: $white;
-    border-radius: 2px 2px 0 0;
-    box-sizing: border-box;
-    min-height: 50px;
-    padding: 16px;
-    position: relative;
-    margin: 0;
-    border-bottom: 1px solid $border-color;
+    &.loading {
+      overflow: hidden;
+      opacity: 0.5;
 
-    .modal-dismiss {
-      margin: 0;
-      padding: 0;
-      position: absolute;
-      right: 16px;
-      top: 16px;
-      cursor: pointer;
-      opacity: .3;
+      // Should affect only direct children
+      > .spinner-wrapper,
+      .modal-mapped-objects > .spinner-wrapper {
+        padding: 0;
+        margin: 0;
+        display: flex;
+        opacity: 0;
 
-      &:hover{
-        opacity: 1;
+        &.active,
+        .spinner {
+          z-index: 9999;
+          opacity: 1;
+        }
+
+        .spinner {
+          position: absolute;
+          right: 0;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          display: flex;
+          align-items: center;
+          font-size: 18px;
+
+          &.grid-spinner {
+            justify-content: center;
+
+            .fa {
+              color: $defaultWidget;
+              font-size: 32px;
+            }
+          }
+        }
       }
     }
   }
 
-  .modal-footer {
+  &__section {
+    margin: 0 0 16px;
+
+    &:last-child {
+      margin: 0;
+    }
+  }
+
+  &__section-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: #333;
+    line-height: 28px;
+    text-transform: uppercase;
+    overflow: hidden;
+    width: 100%;
+    max-width: 100%;
+    text-overflow: ellipsis;
+
+  }
+
+  &__section-title-icon {
+    margin: 0 0 0 8px;
+  }
+
+  &__header {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    box-sizing: border-box;
+    background: $white;
+    height: $simple-modal-header-height;
+    padding: 8px;
+    position: relative;
+    margin: 0;
+    border-bottom: 1px solid $border-color;
+    z-index: 9999;
+  }
+
+  &__header-text {
+    padding: 0 8px;
+    line-height: 28px;
+    font-size: 16px;
+    font-weight: normal;
+    color: $infoWidgetHeader;
+  }
+
+  &__footer {
     border-top: 1px solid $border-color;
     box-sizing: border-box;
-    padding: 16px;
+    padding: 8px;
     margin: 0;
+    overflow: hidden;
     background: $white;
-    border-radius: 0 0 2px 2px;
+  }
 
-    .confirm-buttons{
-      cursor: pointer;
+  /* Specific Styles for Prior Responses Modal Window */
+  &.mapped-controls-info,
+  &.related-assessments {
+    width: 85%;
+    max-width: 85%;
+    height: 85%;
+  }
+
+  &.related-assessments {
+    .simple-modal__body {
+      overflow: hidden;
+      max-height: none;
+      height: calc(100% - #{$simple-modal-header-height});
+    }
+
+    .grid-data-header {
+      box-sizing: border-box;
+      height: $grid-data-header-height;
+    }
+    .grid-data-body {
+      font-size: 13px;
+      height: calc(100% - #{$grid-data-toolbar-height} - #{$grid-data-header-height});
+      box-sizing: border-box;
+      overflow: auto;
+    }
+  }
+
+  &.mapped-controls-info {
+    max-width: 850px;
+
+    .simple-modal__body {
+      padding: 0 16px;
+      overflow: scroll;
+      max-height: calc(100% - #{$simple-modal-header-height});
+    }
+  }
+
+  &.repeat-on {
+    min-width: 480px;
+    .simple-modal__body {
+      max-height: calc(100% - #{$simple-modal-header-height});
+    }
+
+    .simple-modal__header {
+      border-bottom: none;
+    }
+
+    .repeat-options__toggle {
+      margin-bottom: 10px;
+    }
+
+    .simple-modal__footer {
+      border-top: none;
+      text-align: right;
     }
   }
 }
-

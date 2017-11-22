@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 
@@ -42,8 +42,6 @@ def all_cache_entries():
       resource('helps', 'Help'),
       resource('markets', 'Market'),
       resource('meetings', 'Meeting'),
-      resource('object_documents', 'ObjectDocument'),
-      resource('object_owners', 'ObjectOwner'),
       resource('object_people', 'ObjectPerson'),
       resource('objectives', 'Objective'),
       resource('options', 'Option'),
@@ -54,7 +52,6 @@ def all_cache_entries():
       resource('projects', 'Project'),
       resource('programs', 'Program'),
       resource('relationships', 'Relationship'),
-      resource('requests', 'Request'),
       resource('revisions', 'Revision'),
       resource('sections', 'Section'),
       resource('clauses', 'Clause'),
@@ -62,6 +59,7 @@ def all_cache_entries():
       resource('systems', 'System'),
       resource('processes', 'Process'),
       resource('issues', 'Issue'),
+      resource('snapshots', 'Snapshot'),
 
       # ggrc notification models
       resource('notification_configs', 'NotificationConfig'),
@@ -110,15 +108,8 @@ def all_cache_entries():
 
 def all_mapping_entries():
   ret = [
-      mapping('Audit', 'requests'),
       mapping('Audit', 'program'),
-      mapping('Request', 'audit'),
       mapping('CustomAttributeValue', 'attributable', True),
-      mapping('Request', 'responses'),
-      mapping('ObjectDocument', 'document'),
-      mapping('ObjectDocument', 'documentable', True),
-      mapping('ObjectOwner', 'person'),
-      mapping('ObjectOwner', 'ownable', True),
       mapping('ObjectPerson', 'person'),
       mapping('ObjectPerson', 'personable', True),
       mapping('Section', 'directive'),  # this goes out?
@@ -146,6 +137,7 @@ def all_mapping_entries():
       mapping('CycleTaskGroup', 'task_group'),
       mapping('CycleTaskGroupObjectTask', 'cycle'),
       mapping('CycleTaskGroupObjectTask', 'cycle_task_entries'),
+      mapping('CycleTaskGroupObjectTask', 'cycle_task_group'),
       mapping('CycleTaskGroupObjectTask', 'task_group_task'),
       mapping('CycleTaskGroupObjectTask', 'cycle_task_objects_for_cache'),
       mapping('CycleTaskEntry', 'cycle'),

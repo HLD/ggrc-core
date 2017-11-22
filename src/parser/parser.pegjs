@@ -1,5 +1,5 @@
 /*
-  Copyright (C) 2016 Google Inc.
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -289,15 +289,21 @@ quoted_word
       return word.join('');
     }
 
-unqoted_char = [a-zA-Z0-9_\-./]
+unqoted_char
+  = escaped_symbol
+  / [a-zA-Z0-9_\-./%]
 
 
 quoted_char
-  = '\\"'
-    {
-      return '"';
-    }
+  = escaped_symbol
   / [^"]
+
+
+escaped_symbol
+  = escape:'\\' symbol:.
+    {
+      return escape + symbol;
+    }
 
 
 AND
@@ -441,6 +447,12 @@ OP
         }
       };
     }
+  / _+ op:'is' _+
+    {
+      return {
+        name: op,
+      };
+    }
 
 
 LEFT_P = '(' _*
@@ -448,6 +460,3 @@ LEFT_P = '(' _*
 RIGHT_P = _* ')'
 
 _ = [ \t\r\n\f]+
-
-
-

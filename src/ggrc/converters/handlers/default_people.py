@@ -1,12 +1,10 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Handlers for default people fields in assessment templates.
 
 These should be used on default verifiers and default assessors.
 """
-
-from flask import json
 
 from ggrc.models import AssessmentTemplate, Person
 from ggrc.converters import errors
@@ -54,7 +52,8 @@ class DefaultPersonColumnHandler(handlers.ColumnHandler):
         emails.append(email)
 
     if emails:
-      for person in Person.query.filter(Person.email.in_(emails)).all():
+      from ggrc.utils import user_generator
+      for person in user_generator.find_users(emails):
         people.append(person.id)
         emails.remove(person.email)
       if emails:
@@ -107,8 +106,7 @@ class DefaultPersonColumnHandler(handlers.ColumnHandler):
 
     if _default_people:
       default_people.update(_default_people)
-      setattr(self.row_converter.obj, "default_people",
-              json.dumps(default_people))
+      setattr(self.row_converter.obj, "default_people", default_people)
     else:
       setattr(self.row_converter.obj, "_default_people", default_people)
 

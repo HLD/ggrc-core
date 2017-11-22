@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -16,6 +16,7 @@
   }
   img {
     @extend a;
+    min-width: 86px;
   }
 }
 
@@ -49,12 +50,24 @@
       }
     }
   }
+  .entities {
+    font-size: 18px;
+    min-width: 300px;
+
+    > .entity-type {
+      text-transform: capitalize;
+    }
+
+    > .entity-name {
+      opacity: 0.5;
+    }
+  }
 }
 
 .lhn-trigger {
   @include transition(all 0.3s ease);
   height: 15px;
-  width: 16px;
+  min-width: 16px;
   margin: 16px 30px 0 10px;
   padding: 0;
   border: none;
@@ -74,17 +87,17 @@
     margin: 6px 20px 0 0px;
     padding: 10px;
     height: 35px;
-    width: 36px;
+    min-width: 36px;
     background: $contentBgnd;
     .icon-bar {
-      background: #f60;
+      background: $lhnMenuHeader;
     }
   }
   &.active {
     @include rotate(90deg);
     @extend :hover;
     .icon-bar {
-      background: #f60;
+      background: $lhnMenuHeader;
     }
   }
   &:focus {

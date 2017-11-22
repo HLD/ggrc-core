@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Tests API response codes."""
@@ -6,10 +6,10 @@
 import json
 from mock import patch
 
-from integration.ggrc import services
+from integration.ggrc.services import TestCase
 
 
-class TestCollectionPost(services.TestCase):
+class TestCollectionPost(TestCase):
   """Test response codes for post requests."""
 
   def setUp(self):
@@ -48,7 +48,9 @@ class TestCollectionPost(services.TestCase):
         }}
     )
     response = self._post(data)
-    self.assertStatus(response, 400)
+    self.assert400(response)
+    # TODO: check why response.json contains unwrapped string
+    self.assertEqual(response.json, "raised Value Error")
 
     data = json.dumps({
         'services_test_mock_model': {
@@ -59,10 +61,15 @@ class TestCollectionPost(services.TestCase):
         }}
     )
     response = self._post(data)
-    self.assertStatus(response, 400)
+    self.assert400(response)
+    # TODO: check why response.json contains unwrapped string
+    self.assertEqual(response.json, "raised Validation Error")
 
     response = self._post("what")
-    self.assertStatus(response, 400)
+    self.assert400(response)
+    self.assertEqual(response.json["message"],
+                     "The browser (or proxy) sent a request that this server "
+                     "could not understand.")
 
   @patch("ggrc.rbac.permissions.is_allowed_create_for")
   def test_post_forbidden(self, is_allowed):

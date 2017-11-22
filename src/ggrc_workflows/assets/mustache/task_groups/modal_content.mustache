@@ -1,5 +1,5 @@
 {{!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 }}
 
@@ -24,7 +24,26 @@
       </label>
         {{#using assignee=instance.contact model_singular=model.model_singular}}
         <div class="objective-selector">
+          {{^if_config_exist 'external_services.Person'}}
           <input id="task_group_assignee" tabindex="2" type="text" name="contact.email" class="span10 search-icon" data-lookup="Person" placeholder="Enter text to search for Assignee" value="{{firstnonempty assignee.email ''}}">
+          {{else}}
+          <inline-autocomplete-wrapper
+            {instance}="instance"
+            {path}="'contact'"
+            {display-prop}="'email'"
+            {text-value}="assignee.email">
+            <external-data-autocomplete
+              {type}="'Person'"
+              {extra-css-class}="'span10 search-icon'"
+              {placeholder}="'Enter text to search for Assignee'"
+              (item-selected)="setItem(%event.selectedItem)"
+              (criteria-changed)="setItem(%event.value)"
+              {auto-clean}="false"
+              {min-length}="2"
+              {search-criteria}="textValue">
+            </external-data-autocomplete>
+          </inline-autocomplete-wrapper>
+          {{/if_config_exist}}
         </div>
         {{/using}}
 
@@ -52,7 +71,7 @@
           <span class="required">*</span>
           <i class="fa fa-question-circle" rel="tooltip" title="Workflow containing this Task Group"></i>
         </label>
-        <input tabindex="4" class="input-block-level" name="workflow.title" data-lookup="Workflow" data-template="/workflows/autocomplete_result.mustache" placeholder="Choose Workflow" type="text" value="{{firstexist workflow.title ''}}" />
+        <input tabindex="4" class="input-block-level" name="workflow.title" data-lookup="Workflow" placeholder="Choose Workflow" type="text" value="{{firstexist workflow.title ''}}" />
         {{/using}}
       {{else}}
         <input id="workflow_id" name="workflow" type="hidden" model="Workflow" value="{{firstnonempty instance.workflow.id object_params.workflow}}">
@@ -67,7 +86,7 @@
     <div data-id="code_hidden" class="span4 hidable">
       <label>
         Code
-        <i class="fa fa-question-circle" rel="tooltip" title="The gGRC application will automatically provide codes for new objects.  If you would like to override this feature you may manually enter a code of your choosing.  You should have a specific reason for doing this."></i>
+        <i class="fa fa-question-circle" rel="tooltip" title="The GGRC application will automatically provide codes for new objects.  If you would like to override this feature you may manually enter a code of your choosing.  You should have a specific reason for doing this."></i>
         <a data-id="hide_code_lk" href="javascript://" class="field-hide" tabindex="-1">hide</a>
       </label>
       <input data-id="code_txtbx" tabindex="8" class="input-block-level" name="slug" placeholder="TASKGROUP-XXX" type="text" value="{{instance.slug}}">

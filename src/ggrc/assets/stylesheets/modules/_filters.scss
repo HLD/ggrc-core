@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -19,9 +19,11 @@
     line-height: 26px;
     height: 26px;
     background: $white;
-    border-bottom: 3px solid $warmGray;
+    box-shadow: 0 3px 4px 2px $warmGray;
     padding: 7px 16px 6px 10px;
     margin-bottom: 8px;
+    border-radius: 2px;
+
     &--transparent {
       line-height: 26px;
       height: 26px;
@@ -29,11 +31,6 @@
       border-bottom: none;
       padding: 0;
       margin-bottom: 0;
-    }
-    label {
-      font-size:11px;
-      text-transform:uppercase;
-      display: inline-block;
     }
     select {
       line-height:20px;
@@ -72,22 +69,17 @@
       padding-top: 3px;
     }
   }
-  &__input-wrap {
-    width: auto;
-    margin-right: 164px;
-    margin-left: 45px;
-  }
   &__expression-holder {
     position: relative;
     &__is-expression {
-      @include opacity(0.25);
+      opacity: 0.25;
       position: absolute;
       right: 6px;
       top: 1px;
     }
     &--active {
       .tree-filter__expression-holder__is-expression {
-        @include opacity(1);
+        opacity: 1;
         i {
           background-position: -246px -176px;
         }
@@ -97,9 +89,9 @@
   &__input {
     @include box-shadow(none !important);
     @include border-radius(0 !important);
-    line-height: 26px !important;
-    height: 26px !important;
-    padding: 2px 4px !important;
+    line-height: 28px !important;
+    height: 28px !important;
+    padding: 2px 24px !important;
     font-size: 12px !important;
     margin: -2px 0 0 0 !important;
     box-sizing: border-box !important;
@@ -118,32 +110,22 @@
     }
   }
   &__button-wrap {
-    position: absolute;
-    top: 0;
     width: 164px;
-    right: 0;
+    float:left;
+    margin-right: 30px;
   }
   &__button {
-    @extend %clearfix;
     a {
       float: right;
       margin-top: 1px;
       margin-left: 10px;
     }
-    input[type="submit"] {
-      float: right;
-    }
-    input[type="reset"] {
-      @extend input[type="submit"];
-      margin-left: 10px;
-      font-weight: normal;
-    }
     i {
-      @include opacity(0.25);
-      @include transition(opacity 0.2s ease);
+      opacity: 0.7;
+      transition: opacity 0.2s ease;
       color: $black;
       &:hover {
-        @include opacity(1);
+        opacity: 1;
       }
     }
   }
@@ -154,25 +136,46 @@
     @extend %reset-list;
     float:right;
     li {
-      display:inline-block;
+      display:inline-flex;
       margin-left: 20px;
+
+      label {
+        margin-right: 5px;
+      }
     }
+  }
+  &__filter-label-name {
+    line-height: 26px;
+  }
+  &__filter-label-role {
+    line-height: 21px;
   }
 
   &.tree-filter_paging {
     .tree-filter {
-      &__input-wrap {
-        margin-right: 594px;
+      &__fluid-wraper {
+        width:100%;
+        margin: 0 auto;
       }
-      &__button-wrap {
-        right: 440px;
+      &__input-wrap {
+        float: left;
+        width: 27%;
       }
       &__paging-wrap {
         display: block;
         position: absolute;
-        width: 440px;
+        width: 395px;
         right: 0;
         top: 0;
+      }
+      &__status-wrap {
+        float:left;
+        width:20%;
+        min-width: 160px;
+        max-width: 350px;
+        position: relative;
+        top: -2px;
+        font-size: 12px;
       }
     }
   }

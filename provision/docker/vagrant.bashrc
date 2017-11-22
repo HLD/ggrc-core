@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 # ~/.bashrc: executed by bash(1) for non-login shells.
@@ -112,6 +112,3 @@ source /vagrant/bin/init_vagrant_env
 export TERM=xterm-color
 export EDITOR=vim
 PS1='\[\033[01;35m\]\u@\h\[\033[01;34m\] \w \n\$\[\033[00m\] '
-
-ln -sf /vagrant-dev/node_modules /vagrant/node_modules
-ln -sf /vagrant-dev/bower_components /vagrant/bower_components

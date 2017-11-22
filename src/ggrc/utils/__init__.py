@@ -1,15 +1,22 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
+import logging
 import datetime
 import json
 import re
-import sqlalchemy
 import sys
+import sqlalchemy
 
 from flask import request
 from ggrc.settings import CUSTOM_URL_ROOT
 from ggrc.utils import benchmarks
+
+
+logger = logging.getLogger()
+
+DATE_FORMAT_ISO = "%Y-%m-%d"
+DATE_FORMAT_US = "%m/%d/%Y"
 
 
 class GrcEncoder(json.JSONEncoder):
@@ -24,6 +31,8 @@ class GrcEncoder(json.JSONEncoder):
 
   def default(self, obj):
     if isinstance(obj, datetime.datetime):
+      if not obj.time():
+        return obj.date().isoformat()
       return obj.isoformat()
     elif isinstance(obj, datetime.date):
       return obj.isoformat()
@@ -103,7 +112,12 @@ def merge_dict(destination, source, path=None):
       elif destination[key] == source[key]:
         pass  # same leaf value
       else:
-        raise Exception('Conflict at %s' % '.'.join(path + [str(key)]))
+        # raise Exception('Conflict at %s' % '.'.join(path + [str(key)]))
+        # if merging does not work we should just log the warning instead of
+        # raising an error and so sent out whatever notifications we can. This
+        # might cause some data to be missing from the notifications themselves
+        # but at least they will be sent
+        logger.warning('Conflict at %s', '.'.join(path + [str(key)]))
     else:
       destination[key] = source[key]
   return destination
@@ -117,66 +131,9 @@ def merge_dicts(*args):
 
 
 def get_url_root():
-  if CUSTOM_URL_ROOT is not None:
+  if CUSTOM_URL_ROOT:
     return CUSTOM_URL_ROOT
   return request.url_root
-
-
-def get_mapping_rules():
-  """ Get mappings rules as defined in business_object.js
-
-  Special cases:
-    Aduit has direct mapping to Program with program_id
-    Request has a direct mapping to Audit with audit_id
-    Section has a direct mapping to Standard/Regulation/Poicy with directive_id
-    Anything can be mapped to a request, frotent show audit insted
-
-  """
-
-  def filter(object_list):
-    """ remove all lower case items since real object are CamelCase """
-    return set([item for item in object_list if item != item.lower()])
-
-  # these rules are copy pasted from
-  # src/ggrc/assets/javascripts/apps/base_widgets.js line: 9
-  # WARNING ########################################################
-  # Manually added Risks and threats to the list from base_widgets #
-  ##################################################################
-  # TODO: Read these rules from different modules and combine them here.
-  business_object_rules = {
-      "AccessGroup": "Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Audit": "AccessGroup Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor",  # noqa
-      # "AssessmentTemplate": "Audit", # Uncomment this line when we add support for assessment templates in exports # noqa
-      "Clause": "AccessGroup Audit Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Contract": "AccessGroup Audit Clause Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Process Product Program Project Request Section System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Control": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Assessment": "AccessGroup Audit Clause Contract Control DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "DataAsset": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Facility": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Issue": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Market": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Objective": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "OrgGroup": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Person": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Policy Process Product Program Project Regulation Request Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Policy": "AccessGroup Audit Clause Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Process Product Program Project Request Section System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Process": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Product": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Program": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Project": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Regulation": "AccessGroup Audit Clause Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Process Product Program Project Request Section System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Request": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Section": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Standard": "AccessGroup Audit Clause Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Process Product Program Project Request Section System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "System": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Vendor": "AccessGroup Audit Clause Contract Control Assessment DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat CycleTaskGroupObjectTask",  # noqa
-      "Risk": "AccessGroup Clause Contract Assessment Control DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Threat CycleTaskGroupObjectTask",  # noqa
-      "Threat": "AccessGroup Clause Contract Assessment Control DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk CycleTaskGroupObjectTask",  # noqa
-      "CycleTaskGroupObjectTask": "AccessGroup Clause Contract Assessment Control DataAsset Facility Issue Market Objective OrgGroup Person Policy Process Product Program Project Regulation Request Section Standard System Vendor Risk Threat",  # noqa
-  }
-
-  split_rules = {k: v.split() for k, v in business_object_rules.items()}
-  filtered_rules = {k: filter(v) for k, v in split_rules.items()}
-  return filtered_rules
 
 
 def _prefix_camelcase(name, prefix):
@@ -225,6 +182,31 @@ def get_fuzzy_date(delta_date):
   return "in {} day{}".format(delta.days, "s" if delta.days > 1 else "")
 
 
+def get_digest_date_statement(delta_date, word, is_change_tense=False):
+  """Get statement created from word in appropriate tense and readable date.
+
+  This function returns phrase created using concatenation of a word in
+  appropriate tense with human readable date value.
+
+  Args:
+    delta_date (date): Date that we want to show to the user
+    word (str): With which date should be concatenated
+    is_change_tense: Flag which shows is tense of the word should be changed
+
+  Returns:
+    string: A human readable statement, created from word and date
+            concatenation
+  """
+  fuzzy_date = get_fuzzy_date(delta_date)
+  word_end = ''
+  if is_change_tense:
+    if "in" in fuzzy_date:
+      word_end = 's'
+    else:
+      word_end = 'ed'
+  return '{}{} {}'.format(word, word_end, fuzzy_date)
+
+
 # pylint: disable=too-few-public-methods
 # because this is a small context manager
 class QueryCounter(object):
@@ -260,9 +242,44 @@ class QueryCounter(object):
 
 
 benchmark = benchmarks.get_benchmark()
-with_nop = benchmarks.WithNop
 
 
 def convert_date_format(date, format_from, format_to):
   """Convert string date format from one to another."""
   return datetime.datetime.strptime(date, format_from).strftime(format_to)
+
+
+def iso_to_us_date(date_string):
+  """Convert date string from ISO format to US format."""
+  return convert_date_format(date_string, DATE_FORMAT_ISO, DATE_FORMAT_US)
+
+
+def generate_query_chunks(query, chunk_size=1000):
+  """Make a generator splitting `query` into chunks of size `chunk_size`."""
+  count = query.count()
+  for offset in range(0, count, chunk_size):
+    yield query.order_by("id").limit(chunk_size).offset(offset)
+
+
+def create_stub(object_, context_id=None):
+  """Create stub from model attribute
+
+  Args:
+    object_: Object instance
+  Returns:
+    Dict representation of stub
+  """
+  import ggrc.models as models
+
+  if object_:
+    id_ = object_.id
+    type_ = object_.type
+
+    model = getattr(models.all_models, type_)
+    return {
+        'type': type_,
+        'id': id_,
+        'context_id': context_id,
+        'href': u"/api/{}/{}".format(model._inflector.table_plural, id_),
+    }
+  return None

@@ -1,23 +1,26 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """
 Test Creator role with Program scoped roles
 """
 
-from integration.ggrc import TestCase
+# pylint: disable=unused-import
+from ggrc.app import app  # NOQA
+from ggrc import db
 from ggrc.models import all_models
+from integration.ggrc import TestCase
 from integration.ggrc.api_helper import Api
 from integration.ggrc.generator import Generator
 from integration.ggrc.generator import ObjectGenerator
-from ggrc import db
+from integration.ggrc.models import factories
 
 
 class TestCreatorProgram(TestCase):
   """Set up necessary objects and test Creator role with Program roles"""
 
   def setUp(self):
-    TestCase.setUp(self)
+    super(TestCreatorProgram, self).setUp()
     self.generator = Generator()
     self.api = Api()
     self.object_generator = ObjectGenerator()
@@ -191,32 +194,42 @@ class TestCreatorProgram(TestCase):
     test_case = self.test_cases[test_case_name]
     creator = self.people.get('creator')
     self.api.set_user(creator)
-    random_title = self.object_generator.random_str()
+    random_title = factories.random_str()
     response = self.api.post(all_models.Program, {
         "program": {"title": random_title, "context": None},
     })
     self.assertEqual(response.status_code, 201)
     context_id = response.json.get("program").get("context").get("id")
     program_id = response.json.get("program").get("id")
+
+    # Use admin owner role to map it with system
+    acr_id = all_models.AccessControlRole.query.filter_by(
+        object_type="System",
+        name="Admin"
+    ).first().id
     self.objects["program"] = all_models.Program.query.get(program_id)
+
     # Create an object:
     for obj in ("mapped_object", "unrelated"):
-      random_title = self.object_generator.random_str()
+      random_title = factories.random_str()
       response = self.api.post(all_models.System, {
-          "system": {"title": random_title, "context": None},
+          "system": {
+              "title": random_title,
+              "context": None,
+              "access_control_list": [{
+                  "person": {
+                      "id": creator.id,
+                      "type": "Person",
+                  },
+                  "ac_role_id": acr_id,
+                  "context": None
+              }],
+          },
       })
       self.assertEqual(response.status_code, 201)
       system_id = response.json.get("system").get("id")
       self.objects[obj] = all_models.System.query.get(system_id)
-      # Become the owner
-      response = self.api.post(all_models.ObjectOwner, {"object_owner": {
-          "person": {
-              "id": creator.id,
-              "type": "Person",
-          }, "ownable": {
-              "id": system_id,
-              "type": "System"
-          }, "context": None}})
+
     # Map Object to Program
     response = self.api.post(all_models.Relationship, {
         "relationship": {"source": {
@@ -291,79 +304,3 @@ class TestCreatorProgram(TestCase):
                     test_case, action, obj, res, actions[action]))
       # Try mapping
     self.assertEqual(errors, [])
-
-  def test_creator_audit_request_creation(self):
-    self.init_objects("ProgramOwner")
-    program = self.objects.get("program")
-    creator = self.people.get("creator")
-    # Create an audit
-    response = self.api.post(all_models.Audit, {
-        "audit": {
-            "title": "Audit for program",
-            "status": "Planned",
-            "context": {
-                "id": program.context_id,
-                "type": "Context"
-            },
-            "program": {
-                "context_id": program.context_id,
-                "id": program.id,
-                "type": "Program",
-            },
-            "contact": {
-                "id": creator.id,
-                "type": "Person"
-            }
-        },
-    })
-    self.assertEqual(response.status_code, 201)
-    audit_id = response.json.get("audit").get("id")
-    audit_context_id = response.json.get("audit").get("context").get("id")
-    # Create a request
-    response = self.api.post(all_models.Request, {
-        "request": {
-            "title": "Request for audit",
-            "status": "In Progress",
-            "context": {
-                "id": audit_context_id,
-                "type": "Context"
-            },
-            "audit": {
-                "id": audit_id,
-                "type": "Audit",
-            },
-            "end_date": "2015-12-08",
-            "start_date": "2015-12-01",
-            "request_type": "documentation"
-        },
-    })
-    self.assertEqual(response.status_code, 201)
-    request_id = response.json.get("request").get("id")
-
-    # Create assignee/requester relationships
-    assignee = self.people.get("notmapped")
-    response = self.api.post(all_models.Relationship, {
-        "relationship": {
-            "attrs": {
-                "AssigneeType": "Assignee"
-            },
-            "context": {
-                "id": audit_context_id,
-                "type": "Context",
-            },
-            "destination": {
-                "id": request_id,
-                "type": "Request",
-            },
-            "source": {
-                "id": assignee.id,
-                "type": "Person"
-            }
-        },
-    })
-    self.assertEqual(response.status_code, 201)
-    relationship_id = response.json.get("relationship").get("id")
-    response = self.api.get_collection(all_models.Relationship,
-                                       relationship_id)
-    num = len(response.json["relationships_collection"]["relationships"])
-    self.assertEqual(num, 2)

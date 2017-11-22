@@ -7,6 +7,14 @@
     "jquery": true
   },
 
+  "parserOptions": {
+    "ecmaVersion": 6,
+    "ecmaFeatures": {
+      "experimentalObjectRestSpread": true
+    },
+    "sourceType": "module"
+  },
+
   "globals": {
     "_": false,
     "can": false,
@@ -38,6 +46,9 @@
   },
 
   "rules": {
+    "comma-dangle": [
+      1, "always-multiline"
+    ],
     "id-length": [1, {
       "min": 2,
       "max": 25,
@@ -57,7 +68,8 @@
     }],
     "max-len": [1, 80, 2, {
       "ignoreComments": true,
-      "ignoreUrls": true
+      "ignoreUrls": true,
+      "ignorePattern": "^import (.+ from )?'.+';$"
     }],
     "quotes": [1, "single", {
       "avoidEscape": true
@@ -66,13 +78,16 @@
       "boolean": false
     }],
     "no-inline-comments": 0,
+    "no-invalid-this": 0,
     "no-negated-condition": 0,
     "no-unused-vars": [2, {
       "args": "none",
       "vars": "all"
     }],
+    "no-var": 0,
     // Each variable declaration must have its own var keyword
     "one-var": [2, "never"],
+    "prefer-rest-params": 0,
     "quote-props": [2, "as-needed", {
       "numbers": true,
       "keywords": true

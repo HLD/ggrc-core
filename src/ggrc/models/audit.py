@@ -1,29 +1,32 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """Audit model."""
 
+from sqlalchemy import orm
+
 from ggrc import db
 from ggrc.models.deferred import deferred
 from ggrc.models.mixins import (
-    Timeboxed, Noted, Described, Hyperlinked, WithContact,
-    Titled, Slugged, CustomAttributable
+    Timeboxed, WithContact, CustomAttributable, BusinessObject
 )
 
+from ggrc.models.object_document import PublicDocumentable
 from ggrc.models.mixins import clonable
 from ggrc.models.relationship import Relatable
 from ggrc.models.object_person import Personable
 from ggrc.models.context import HasOwnContext
 from ggrc.models.reflection import AttributeInfo
-from ggrc.models.reflection import PublishOnly
+from ggrc.models import reflection
 from ggrc.models.program import Program
 from ggrc.models.person import Person
+from ggrc.models.snapshot import Snapshotable
+from ggrc.fulltext.mixin import Indexed
 
 
-class Audit(clonable.Clonable,
+class Audit(Snapshotable, clonable.Clonable, PublicDocumentable,
             CustomAttributable, Personable, HasOwnContext, Relatable,
-            Timeboxed, Noted, Described, Hyperlinked, WithContact, Titled,
-            Slugged, db.Model):
+            Timeboxed, WithContact, BusinessObject, Indexed, db.Model):
   """Audit model."""
 
   __tablename__ = 'audits'
@@ -31,7 +34,7 @@ class Audit(clonable.Clonable,
 
   VALID_STATES = (
       u'Planned', u'In Progress', u'Manager Review',
-      u'Ready for External Review', u'Completed'
+      u'Ready for External Review', u'Completed', u'Deprecated'
   )
 
   CLONEABLE_CHILDREN = {"AssessmentTemplate"}
@@ -41,31 +44,46 @@ class Audit(clonable.Clonable,
   audit_firm_id = deferred(
       db.Column(db.Integer, db.ForeignKey('org_groups.id')), 'Audit')
   audit_firm = db.relationship('OrgGroup', uselist=False)
-  # TODO: this should be stateful mixin
-  status = deferred(db.Column(db.Enum(*VALID_STATES), nullable=False),
-                    'Audit')
   gdrive_evidence_folder = deferred(db.Column(db.String), 'Audit')
   program_id = deferred(
       db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False),
       'Audit')
-  requests = db.relationship(
-      'Request', backref='audit', cascade='all, delete-orphan')
   audit_objects = db.relationship(
       'AuditObject', backref='audit', cascade='all, delete-orphan')
   object_type = db.Column(
       db.String(length=250), nullable=False, default='Control')
 
-  _publish_attrs = [
+  assessments = db.relationship('Assessment', backref='audit')
+  issues = db.relationship('Issue', backref='audit')
+  archived = deferred(db.Column(db.Boolean,
+                      nullable=False, default=False), 'Audit')
+
+  _api_attrs = reflection.ApiAttributes(
       'report_start_date',
       'report_end_date',
       'audit_firm',
-      'status',
       'gdrive_evidence_folder',
       'program',
-      'requests',
       'object_type',
-      PublishOnly('audit_objects')
+      'archived',
+      reflection.Attribute('audit_objects', create=False, update=False),
+  )
+
+  _fulltext_attrs = [
+      'archived',
+      'report_start_date',
+      'report_end_date',
+      'audit_firm',
+      'gdrive_evidence_folder',
   ]
+
+  @classmethod
+  def indexed_query(cls):
+    return super(Audit, cls).indexed_query().options(
+        orm.Load(cls).undefer_group(
+            "Audit_complete",
+        ),
+    )
 
   _sanitize_html = [
       'gdrive_evidence_folder',
@@ -85,20 +103,26 @@ class Audit(clonable.Clonable,
           "type": AttributeInfo.Type.USER_ROLE,
           "filter_by": "_filter_by_auditor",
       },
-      "status": "Status",
       "start_date": "Planned Start Date",
       "end_date": "Planned End Date",
       "report_start_date": "Planned Report Period from",
       "report_end_date": "Planned Report Period to",
       "contact": {
-          "display_name": "Internal Audit Lead",
+          "display_name": "Audit Captain",
           "mandatory": True,
-          "filter_by": "_filter_by_contact",
       },
       "secondary_contact": None,
       "notes": None,
-      "url": None,
       "reference_url": None,
+      "archived": {
+          "display_name": "Archived",
+          "mandatory": False
+      },
+      "status": {
+          "display_name": "Status",
+          "mandatory": True,
+          "description": "Options are:\n{}".format('\n'.join(VALID_STATES))
+      }
   }
 
   def _clone(self, source_object):
@@ -190,12 +214,9 @@ class Audit(clonable.Clonable,
 
   @classmethod
   def eager_query(cls):
-    from sqlalchemy import orm
-
     query = super(Audit, cls).eager_query()
     return query.options(
         orm.joinedload('program'),
-        orm.subqueryload('requests'),
         orm.subqueryload('object_people').joinedload('person'),
         orm.subqueryload('audit_objects'),
     )

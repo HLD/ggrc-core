@@ -1,5 +1,5 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -13,15 +13,17 @@ GGRC.Controllers.Modals("GGRC.Controllers.ApprovalWorkflow", {
     modal_title: "Submit for review",
     custom_save_button_text: "Submit",
     content_view: GGRC.mustache_path + "/wf_objects/approval_modal_content.mustache",
-    button_view : GGRC.Controllers.Modals.BUTTON_VIEW_SAVE_CANCEL
+    button_view : GGRC.Controllers.Modals.BUTTON_VIEW_SAVE_CANCEL,
+    afterFetch: function () {
+      this.attr("instance", new CMS.ModelHelpers.ApprovalWorkflow({
+        original_object : this.attr('instance')
+      }));
+    }
   }
 }, {
   init : function() {
     this.options.button_view = GGRC.Controllers.Modals.BUTTON_VIEW_SAVE_CANCEL;
     this._super.apply(this, arguments);
-    this.options.attr("instance", new CMS.ModelHelpers.ApprovalWorkflow({
-      original_object : this.options.instance
-    }));
   },
   "input[null-if-empty] change" : function(el, ev) {
     if(el.val() === "") {
@@ -52,7 +54,7 @@ GGRC.register_modal_hook("approvalform", function($target, $trigger, option) {
   });
 });
 
-})(this.can, this.can.$, this.GGRC, this.CMS);
+})(window.can, window.can.$, window.GGRC, window.CMS);
 
 
 //Calendar authentication

@@ -1,5 +1,5 @@
 /*!
-  Copyright (C) 2016 Google Inc.
+  Copyright (C) 2017 Google Inc.
   Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
@@ -57,7 +57,8 @@
 
       if (noPerson ||
         (person && !person.email)) {
-        personModel = CMS.Models.Person.cache[personId || person.id];
+        personModel = CMS.Models.Person
+          .findInCacheById(personId || person.id);
         if (personModel) {
           personModel = personModel.reify();
         }
@@ -69,6 +70,7 @@
       // If it is, we can be certain that we can use the object from the cache.
       if (personModel && personModel.email) {
         scope.attr('personObj', personModel);
+        scope.attr('personId', personModel.id);
         return;
       }
       if (isNaN(personId) || personId <= 0) {
@@ -81,6 +83,7 @@
         .then(function (person) {
           person = Array.isArray(person) ? person[0] : person;
           scope.attr('personObj', person);
+          scope.attr('personId', person.id);
         }, function () {
           $(document.body).trigger(
             'ajax:flash',
@@ -102,9 +105,16 @@
           type: component._EV_REMOVE_CLICK,
           person: this.scope.personObj
         });
+
+        // keep the legacy event emitting mechanism above, but emit the event
+        // using the more modern dispatch mechanism, too
+        this.viewModel.dispatch({
+          type: 'personRemove',
+          person: this.scope.personObj
+        });
       }
     }
   };
 
-  GGRC.Components('personItem', component);
+  GGRC.Components('personItem', component, true);
 })(window.GGRC, window.can);

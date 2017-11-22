@@ -1,8 +1,9 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
 from ggrc.models.mixins import Base
+from ggrc.models import reflection
 
 
 class Event(Base, db.Model):
@@ -21,12 +22,12 @@ class Event(Base, db.Model):
       cascade='all, delete-orphan',
   )
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'action',
       'resource_id',
       'resource_type',
       'revisions',
-  ]
+  )
 
   _include_links = [
       'revisions',
@@ -36,10 +37,6 @@ class Event(Base, db.Model):
   def _extra_table_args(class_):
     return (
         db.Index('events_modified_by', 'modified_by_id'),
-        db.Index(
-            'ix_{}_updated_at'.format(class_.__tablename__),
-            'updated_at',
-        ),
     )
 
   @classmethod

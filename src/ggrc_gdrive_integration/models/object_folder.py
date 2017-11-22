@@ -1,8 +1,11 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
+from ggrc.builder import simple_property
+from ggrc.models import reflection
 from ggrc.models.mixins import Base
+from ggrc.utils import create_stub
 
 
 class ObjectFolder(Base, db.Model):
@@ -34,11 +37,11 @@ class ObjectFolder(Base, db.Model):
         db.Index('ix_folderable_id_type', 'folderable_id', 'folderable_type'),
     )
 
-  _publish_attrs = [
+  _api_attrs = reflection.ApiAttributes(
       'folder_id',
       'parent_folder_id',
       'folderable',
-  ]
+  )
 
   @classmethod
   def eager_query(cls):
@@ -50,7 +53,7 @@ class ObjectFolder(Base, db.Model):
 
 
 class Folderable(object):
-
+  """Mixin adding the ability to attach folders to an object"""
   @classmethod
   def late_init_folderable(cls):
     def make_object_folders(cls):
@@ -63,11 +66,19 @@ class Folderable(object):
           backref='{0}_folderable'.format(cls.__name__),
           cascade='all, delete-orphan',
       )
+
     cls.object_folders = make_object_folders(cls)
 
-  _publish_attrs = [
+  @simple_property
+  def folders(self):
+    """Returns a list of associated folders' ids"""
+    # pylint: disable=not-an-iterable
+    return [{"id": fobject.folder_id} for fobject in self.object_folders]
+
+  _api_attrs = reflection.ApiAttributes(
       'object_folders',
-  ]
+      reflection.Attribute('folders', create=False, update=False),
+  )
 
   @classmethod
   def eager_query(cls):
@@ -76,3 +87,15 @@ class Folderable(object):
     query = super(Folderable, cls).eager_query()
     return query.options(
         orm.subqueryload('object_folders'))
+
+  def log_json(self):
+    """Serialize to JSON"""
+    out_json = super(Folderable, self).log_json()
+    if hasattr(self, "object_folders"):
+      out_json["object_folders"] = [
+          # pylint: disable=not-an-iterable
+          create_stub(fold) for fold in self.object_folders if fold
+      ]
+    if hasattr(self, "folders"):
+      out_json["folders"] = self.folders
+    return out_json

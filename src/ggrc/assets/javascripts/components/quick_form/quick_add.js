@@ -1,9 +1,10 @@
 /*!
-    Copyright (C) 2016 Google Inc.
+    Copyright (C) 2017 Google Inc.
     Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 */
 
 (function (can, $) {
+  'use strict';
   /*
     Below this line we're defining a few can.Components, which are in this file
     because they work similarly to the quick form controller (in fact, you should
@@ -21,19 +22,15 @@
     instantiating the component.
   */
   GGRC.Components('quickAdd', {
-    tag: "ggrc-quick-add",
-    // <content> in a component template will be replaced with whatever is contained
-    //  within the component tag.  Since the views for the original uses of these components
-    //  were already created with content, we just used <content> instead of making
-    //  new view template files.
-    template: "<content/>",
-    scope: {
+    tag: 'ggrc-quick-add',
+    viewModel: {
       parent_instance: null,
       source_mapping: null,
-      join_model: "@",
+      join_model: '@',
       model: null,
-      delay: "@",
+      delay: '@',
       quick_create: "@",
+      type: '@',
       verify_event: "@",
       modal_description: "@",
       modal_title: "@",
@@ -48,7 +45,18 @@
       create_url: function () {
         var value = $.trim(this.element.find("input[type='text']").val());
         var dfd;
-
+        var context = this.viewModel.attr('parent_instance.context') ||
+            new CMS.Models.Context({id: null});
+        var attrs = {
+          link: value,
+          title: value,
+          context: context,
+          document_type: this.viewModel.attr('type'),
+          created_at: new Date(),
+          isDraft: true,
+          _stamp: Date.now()
+        };
+        this.viewModel.dispatch({type: 'beforeCreate', items: [attrs]});
         // We are not validating the URL because application can locally we can
         // have URL's that are valid, but they wouldn't pass validation i.e.
         // - hi/there
@@ -56,42 +64,45 @@
         // - http://something.com etc
         // and thus we decided to validate just string existence
         if (!value || _.isEmpty(value)) {
-          dfd = $.Deferred();
+          dfd = can.Deferred();
           dfd.reject({
             message: 'Please enter a URL'
           });
           return dfd.promise();
         }
-        dfd = new CMS.Models.Document({
-          link: value,
-          title: value,
-          context: this.scope.parent_instance.context || new CMS.Models.Context({
-            id: null
-          }),
-          owners: [{type: "Person", id: GGRC.current_user.id}],
-        });
+        dfd = new CMS.Models.Document(attrs);
         return dfd.save();
       }
     },
     events: {
       init: function () {
-        this.scope.attr("controller", this);
+        this.scope.attr('controller', this);
       },
       // The inserted event fires when the component content is added to the DOM.
       //  At this time, live bound rendering should be resolved, which is not the
       //  case during init.
       inserted: function (el) {
-        this.element.find("input:not([data-mapping], [data-lookup])").each(function(i, el) {
-          this.scope.attributes.attr($(el).attr("name"), $(el).val());
-        }.bind(this));
+        this.element.find('input:not([data-mapping], [data-lookup])')
+          .each(function (i, el) {
+            this.viewModel.attributes.attr($(el).attr('name'), $(el).val());
+          }.bind(this));
       },
-      "a[data-toggle=submit]:not(.disabled) click": function (el, ev) {
-        var scope = this.scope;
+      'a[data-toggle=submit]:not(.disabled):not([disabled]) click': function (el, ev) {
+        var scope = this.viewModel;
         var join_model_class;
         var join_object;
         var quick_create;
         var created_dfd;
-        var verify_dfd = $.Deferred();
+        var verify_dfd = can.Deferred();
+        scope.attr('disabled', true);
+        scope.attr('verify_event',
+          !!this.element.context.attributes.verify_event);
+
+        // Update modal description only if verification is needed
+        if (this.element.context.attributes.modal_description) {
+          scope.attr('modal_description',
+            this.element.context.attributes.modal_description.value);
+        }
 
         if (scope.attr("verify_event")) {
           GGRC.Controllers.Modals.confirm({
@@ -99,7 +110,7 @@
             modal_confirm: scope.attr("modal_button"),
             modal_title: scope.attr("modal_title"),
             button_view: GGRC.mustache_path + "/quick_form/confirm_buttons.mustache"
-          }, verify_dfd.resolve);
+          }, verify_dfd.resolve, verify_dfd.reject);
         } else {
           verify_dfd.resolve();
         }
@@ -118,16 +129,25 @@
                   })
                   .done(function (data) {
                     this.scope.attr('instance', data);
-                  }.bind(this));
+                  }.bind(this))
+                  .always(function () {
+                    scope.attr('disabled', false);
+                  });
               }
             }
           }
           if (!created_dfd) {
-            created_dfd = $.Deferred().resolve();
+            created_dfd = can.Deferred().resolve();
           }
 
           if (created_dfd.state() === 'rejected') {
             created_dfd.fail(function (error) {
+              var instance = scope.attr('instance');
+              scope.dispatch({
+                type: 'afterCreate',
+                items: [instance],
+                success: false
+              });
               $(document.body).trigger('ajax:flash', {
                 error: error.message
               });
@@ -158,7 +178,7 @@
                 join_object,
                 {
                   context: this.scope.parent_instance.context
-                              || new CMS.Models.Context({id : null}),
+                              || new CMS.Models.Context({id : null})
                 },
                 this.scope.attributes.serialize()
               ));
@@ -167,27 +187,48 @@
                 this.scope.parent_instance,
                 this.scope.instance || this.scope.attributes.instance,
                 $.extend({
-                  context : this.scope.parent_instance.context
+                  context: this.scope.parent_instance.context
                             || new CMS.Models.Context({id : null})
                           },
                           this.scope.attributes.serialize())
               );
             }
             this.bindXHRToButton(
-              join_object.save().done(function() {
-                el.trigger("modal:success", join_object);
-              }),
-              el
-              );
-          }.bind(this));
-        }.bind(this));
+              join_object.save()
+                .done(function () {
+                  var instance = scope.attr('instance');
+                  el.trigger('modal:success', join_object);
+
+                  scope.dispatch({
+                    type: 'afterCreate',
+                    items: [instance],
+                    success: true
+                  });
+                })
+                .fail(function () {
+                  var instance = scope.attr('instance');
+
+                  scope.dispatch({
+                    type: 'afterCreate',
+                    items: [instance],
+                    success: false
+                  });
+                }));
+          }.bind(this))
+          .always(function () {
+            scope.attr('disabled', false);
+          });
+        }.bind(this))
+        .fail(function () {
+          scope.attr('disabled', false);
+        });
       },
       // this works like autocomplete_select on all modal forms and
       //  descendant class objects.
       autocomplete_select: function(el, event, ui) {
         var that = this;
         setTimeout(function() {
-          that.scope.attr(el.attr("name"), ui.item);
+          that.scope.attr('instance', ui.item);
         });
       },
       "input[null-if-empty] change" : function(el) {
@@ -288,6 +329,6 @@
           });
         };
       }
-    },
-  });
+    }
+  }, true);
 })(window.can, window.can.$);

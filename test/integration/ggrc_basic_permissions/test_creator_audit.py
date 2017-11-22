@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """
@@ -11,13 +11,14 @@ from integration.ggrc import TestCase
 from integration.ggrc.api_helper import Api
 from integration.ggrc.generator import Generator
 from integration.ggrc.generator import ObjectGenerator
+from integration.ggrc.models import factories
 
 
 class TestCreatorAudit(TestCase):
   """Set up necessary objects and test Creator role with Audit roles"""
 
   def setUp(self):
-    TestCase.setUp(self)
+    super(TestCreatorAudit, self).setUp()
     self.generator = Generator()
     self.api = Api()
     self.object_generator = ObjectGenerator()
@@ -39,8 +40,8 @@ class TestCreatorAudit(TestCase):
                 },
                 "mapped_Issue": {
                     "get": 200,
-                    "put": 403,
-                    "delete": 403
+                    "put": 200,
+                    "delete": 200
                 },
                 "unrelated_Issue": {
                     "get": 403,
@@ -50,8 +51,8 @@ class TestCreatorAudit(TestCase):
                 },
                 "mapped_Assessment": {
                     "get": 200,
-                    "put": 403,
-                    "delete": 403
+                    "put": 200,
+                    "delete": 200
                 },
                 "unrelated_Assessment": {
                     "get": 403,
@@ -142,10 +143,16 @@ class TestCreatorAudit(TestCase):
         test_case_name (string): test case to init for
     """
     # Create a program
+    dummy_audit = factories.AuditFactory()
+    unrelated_audit = {
+        "type": "Audit",
+        "context_id": dummy_audit.context.id,
+        "id": dummy_audit.id,
+    }
     test_case = self.test_cases[test_case_name]
     editor = self.people.get('editor')
     self.api.set_user(editor)
-    random_title = self.object_generator.random_str()
+    random_title = factories.random_str()
     response = self.api.post(all_models.Program, {
         "program": {"title": random_title, "context": None},
     })
@@ -161,22 +168,40 @@ class TestCreatorAudit(TestCase):
         }
     })
     self.assertEqual(response.status_code, 201)
-    context_id = response.json.get("audit").get("context").get("id")
+    context = response.json.get("audit").get("context")
     audit_id = response.json.get("audit").get("id")
     self.objects["audit"] = all_models.Audit.query.get(audit_id)
+    audits = {
+        "mapped": {
+            "type": "Audit",
+            "context_id": context["id"],
+            "id": audit_id,
+        },
+        "unrelated": unrelated_audit,
+    }
 
-    for prefix in ("mapped", "unrelated"):
-      random_title = self.object_generator.random_str()
+    for prefix, audit_dict in audits.items():
+      random_title = factories.random_str()
 
       response = self.api.post(all_models.Issue, {
-          "issue": {"title": random_title, "context": None},
+          "issue": {
+              "title": random_title,
+              "context": None,
+          },
       })
       self.assertEqual(response.status_code, 201)
       issue_id = response.json.get("issue").get("id")
       self.objects[prefix + "_Issue"] = all_models.Issue.query.get(issue_id)
 
       response = self.api.post(all_models.Assessment, {
-          "assessment": {"title": random_title, "context": None},
+          "assessment": {
+              "title": random_title,
+              "context": {
+                  "type": "Context",
+                  "id": audit_dict["context_id"],
+              },
+              "audit": audit_dict,
+          },
       })
       self.assertEqual(response.status_code, 201)
       assessment_id = response.json.get("assessment").get("id")
@@ -201,8 +226,8 @@ class TestCreatorAudit(TestCase):
               "id": role["id"],
           }, "context": {
               "type": "Context",
-              "id": context_id,
-              "href": "/api/contexts/{}".format(context_id)
+              "id": context.get("id"),
+              "href": "/api/contexts/{}".format(context.get("id"))
           }}})
       self.assertEqual(response.status_code, 201)
 

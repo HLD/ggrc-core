@@ -1,18 +1,23 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 from ggrc import db
-from .mixins import BusinessObject, Timeboxed, CustomAttributable
+from ggrc.access_control.roleable import Roleable
+from ggrc.fulltext.mixin import Indexed
+from ggrc.models.comment import Commentable
+from .mixins import (BusinessObject, LastDeprecatedTimeboxed,
+                     CustomAttributable, TestPlanned)
+from .object_document import PublicDocumentable
 from .object_person import Personable
-from .object_owner import Ownable
 from .relationship import Relatable
-from .track_object_state import HasObjectState, track_state_for_class
+from .track_object_state import HasObjectState
 
 
-class Market(HasObjectState, CustomAttributable, Personable,
-             Relatable, Timeboxed, Ownable,
-             BusinessObject, db.Model):
+class Market(Roleable, HasObjectState, CustomAttributable, Personable,
+             Relatable, LastDeprecatedTimeboxed, PublicDocumentable,
+             Commentable, TestPlanned, BusinessObject, Indexed, db.Model):
   __tablename__ = 'markets'
-  _aliases = {"url": "Market URL"}
-
-track_state_for_class(Market)
+  _aliases = {
+      "document_url": None,
+      "document_evidence": None,
+  }

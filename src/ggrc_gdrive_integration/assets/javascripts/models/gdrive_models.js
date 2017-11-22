@@ -1,7 +1,9 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
+
+import {uploadFiles} from '../utils/gdrive-picker-utils.js';
 
 (function (can) {
   'use strict';
@@ -288,44 +290,10 @@
       return CMS.Models.GDriveFolderPermission.findAll(this.serialize());
     },
     uploadFiles: function () {
-      var that = this;
-      var dfd = new $.Deferred();
-      gapi.load('picker', {
-        callback: createPicker
+      return uploadFiles({
+        parentId: this.id,
       });
-
-        // Create and render a Picker object for searching images.
-      function createPicker() {
-        window.oauth_dfd.done(function (token, oauth_user) {
-          var dialog;
-          var picker = new google.picker.PickerBuilder()
-                  .addView(new google.picker.DocsUploadView().setParent(that.id))
-                  .addView(google.picker.ViewId.DOCS)
-                  .setOAuthToken(gapi.auth.getToken().access_token)
-                  .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-                  .setDeveloperKey(GGRC.config.GAPI_KEY)
-                  .setCallback(pickerCallback)
-                  .build();
-
-          picker.setVisible(true);
-          dialog = GGRC.Utils.getPickerElement(picker);
-          if (dialog) {
-            dialog.style.zIndex = 4001; // our modals start with 2050
-          }
-        });
-      }
-
-        // A simple callback implementation.
-      function pickerCallback(data) {
-        var action = data[google.picker.Response.ACTION];
-        if (action === google.picker.Action.PICKED) {
-          dfd.resolve(CMS.Models.GDriveFile.models(data[google.picker.Response.DOCUMENTS]));
-        } else if (action === google.picker.Action.CANCEL) {
-          dfd.reject('action canceled');
-        }
-      }
-      return dfd.promise();
-    }
+    },
   });
 
   /*

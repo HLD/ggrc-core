@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google Inc.
+ * Copyright (C) 2017 Google Inc.
  * Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
  */
 
@@ -181,6 +181,10 @@ form.import {
   margin-top: 10px;
 }
 
+.csv-input > .state-reset {
+  margin-left: 10px;
+}
+
 .import-analyze {
   ul {
     @extend %reset-list;
@@ -215,6 +219,10 @@ form.import {
 
 .new-relevant-block {
   padding: 30px;
+
+  relevant-filter {
+    max-width: 560px;
+  }
 }
 
 .new-relevant-block:nth-child(odd) {
@@ -244,4 +252,65 @@ form.import {
   input {
     margin-bottom: 0;
   }
+}
+
+#export_view .info {
+  -webkit-box-shadow: none;
+  box-shadow: none;
+}
+
+.export-add-filter-button {
+  margin: 20px 0 0 30px;
+}
+
+.export-group__actions-wrap {
+  display: flex;
+  align-items: flex-end;
+  margin: 30px 0;
+  & > .btn-success {
+    background-color: $btnGreen;
+  }
+
+  .export-format-wrap {
+    width: 25%;
+
+    h6 {
+      padding-bottom: 6px;
+    }
+
+    select {
+      width: 100%;
+      margin: 0;
+    }
+  }
+
+  .export-buttons-wrap {
+    margin-left: 20px;
+  }
+}
+
+.export-panel {
+  .export-panel__group {
+    margin-bottom: 20px;
+  }
+
+  .export-panel__header {
+    display: flex;
+    margin-bottom: 10px;
+  }
+
+  .export-panel__title {
+    font-weight: bold;
+    text-transform: uppercase;
+    margin-right: 10px;
+  }
+
+  .export-panel__checkbox {
+    line-height: 10px;
+    margin-right: 5px;
+  }
+}
+
+.remove_filter_group {
+  margin: 0 0 5px 10px;
 }

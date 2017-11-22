@@ -1,4 +1,4 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
 """A module with configuration of the ProgramAuditOwner role's permissions."""
@@ -13,16 +13,15 @@ description = """
   """
 permissions = {
     "read": [
-        "Request",
         "Assessment",
         "AssessmentTemplate",
         "Issue",
         "UserRole",
         "Audit",
+        "Snapshot",
         "AuditObject",
         "Meeting",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
@@ -30,16 +29,15 @@ permissions = {
         "Context",
     ],
     "create": [
-        "Request",
         "Assessment",
         "AssessmentTemplate",
         "Issue",
         "UserRole",
         "Audit",
+        "Snapshot",
         "AuditObject",
         "Meeting",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
@@ -49,16 +47,22 @@ permissions = {
         "__GGRC_ALL__"
     ],
     "update": [
-        "Request",
         "Assessment",
         "AssessmentTemplate",
         "Issue",
         "UserRole",
-        "Audit",
+        {
+            "type": "Audit",
+            "terms": {
+                "property_name": "archived",
+                "prevent_if": False
+            },
+            "condition": "has_changed"
+        },
+        "Snapshot",
         "AuditObject",
         "Meeting",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
@@ -66,17 +70,22 @@ permissions = {
     ],
     "delete": [
         "UserRole",
-        "Request",
         "Assessment",
         "AssessmentTemplate",
         "Issue",
         "ObjectControl",
-        "ObjectDocument",
         "ObjectPerson",
         "Relationship",
         "Document",
         "Meeting"
         "AuditObject",
-        "Audit",
+        {
+            "type": "Audit",
+            "terms": {
+                "property_name": "archived",
+                "prevent_if": False
+            },
+            "condition": "has_changed"
+        },
     ]
 }

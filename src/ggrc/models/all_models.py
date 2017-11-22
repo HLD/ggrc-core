@@ -1,16 +1,26 @@
-# Copyright (C) 2016 Google Inc.
+# Copyright (C) 2017 Google Inc.
 # Licensed under http://www.apache.org/licenses/LICENSE-2.0 <see LICENSE file>
 
-"""All gGRC model classes grouped together for convenience."""
+"""All GGRC model classes grouped together for convenience."""
 
 import sys
 
+from ggrc.access_control.role import AccessControlRole
+from ggrc.access_control.list import AccessControlList
+from ggrc.data_platform.attribute_definitions import AttributeDefinitions
+from ggrc.data_platform.attribute_templates import AttributeTemplates
+from ggrc.data_platform.attribute_types import AttributeTypes
+from ggrc.data_platform.attributes import Attributes
+from ggrc.data_platform.namespaces import Namespaces
+from ggrc.data_platform.object_templates import ObjectTemplates
+from ggrc.data_platform.object_types import ObjectTypes
 from ggrc.models import inflector
 from ggrc.models.access_group import AccessGroup
 from ggrc.models.assessment import Assessment
 from ggrc.models.assessment_template import AssessmentTemplate
 from ggrc.models.audit import Audit
 from ggrc.models.audit_object import AuditObject
+from ggrc.models.automapping import Automapping
 from ggrc.models.background_task import BackgroundTask
 from ggrc.models.categorization import Categorization
 from ggrc.models.category import CategoryBase
@@ -38,8 +48,6 @@ from ggrc.models.meeting import Meeting
 from ggrc.models.notification import Notification
 from ggrc.models.notification import NotificationConfig
 from ggrc.models.notification import NotificationType
-from ggrc.models.object_document import ObjectDocument
-from ggrc.models.object_owner import ObjectOwner
 from ggrc.models.object_person import ObjectPerson
 from ggrc.models.objective import Objective
 from ggrc.models.option import Option
@@ -50,20 +58,33 @@ from ggrc.models.program import Program
 from ggrc.models.project import Project
 from ggrc.models.relationship import Relationship
 from ggrc.models.relationship import RelationshipAttr
-from ggrc.models.request import Request
 from ggrc.models.revision import Revision
 from ggrc.models.section import Section
+from ggrc.models.snapshot import Snapshot
 from ggrc.models.system import Process
 from ggrc.models.system import System
 from ggrc.models.system import SystemOrProcess
 from ggrc.models.vendor import Vendor
 
-all_models = [
+all_models = [  # pylint: disable=invalid-name
+    # data platform models
+    AttributeDefinitions,
+    AttributeTemplates,
+    AttributeTypes,
+    Attributes,
+    Namespaces,
+    ObjectTemplates,
+    ObjectTypes,
+
+    # ggrc models
+    AccessControlRole,
+    AccessControlList,
     AccessGroup,
     Assessment,
     AssessmentTemplate,
     Audit,
     AuditObject,
+    Automapping,
     Categorization,
     CategoryBase,
     ControlCategory,
@@ -85,8 +106,6 @@ all_models = [
     Market,
     Meeting,
     Objective,
-    ObjectDocument,
-    ObjectOwner,
     ObjectPerson,
     Option,
     OrgGroup,
@@ -97,7 +116,6 @@ all_models = [
     Project,
     Relationship,
     RelationshipAttr,
-    Request,
     Section,
     Clause,
     SystemOrProcess,
@@ -109,10 +127,11 @@ all_models = [
     NotificationConfig,
     NotificationType,
     Notification,
-    Issue
+    Issue,
+    Snapshot,
 ]
 
-__all__ = [model.__name__ for model in all_models]
+__all__ = [m.__name__ for m in all_models]
 
 
 def register_model(model):
@@ -126,7 +145,7 @@ def register_model(model):
   """
   current_module = sys.modules[__name__]
   setattr(current_module, model.__name__, model)
-  model._inflector
+  inflector.register_inflections(model._inflector)
   all_models.append(model)
   __all__.append(model.__name__)
 
