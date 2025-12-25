@@ -121,7 +121,7 @@ class BlockConverter(object):
     # TODO: remove 'if' statement. Init should initialize only.
     if self.object_class:
       self.object_headers = get_object_column_definitions(self.object_class)
-      all_header_names = [unicode(key)
+      all_header_names = [str(key)
                           for key in self.get_header_names().keys()]
       raw_headers = options.get("raw_headers", all_header_names)
       self.check_for_duplicate_columns(raw_headers)
@@ -581,11 +581,11 @@ class BlockConverter(object):
     collections = {}
     for obj in new_objects:
       collections.setdefault(obj.__class__, []).append(obj)
-    for object_class, objects in collections.iteritems():
+    for object_class, objects in collections.items():
       signals.Restful.collection_posted.send(
           object_class,
           objects=objects,
-          sources=[{} for _ in xrange(len(objects))],
+          sources=[{} for _ in range(len(objects))],
       )
 
   def _store_revision_ids(self, event):
@@ -668,7 +668,7 @@ class BlockConverter(object):
     make the headers more user friendly.
 
     Args:
-      header (basestring): Raw header value found in the cells of each row of
+      header (str): Raw header value found in the cells of each row of
         all blocks in the imported file.
 
     Returs:
